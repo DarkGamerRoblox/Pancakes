@@ -12,7 +12,7 @@ Add Pancakes to your `wally.toml`:
 
 ```toml
 [dependencies]
-Pancakes = "darkgamer/pancakes@1.0.0"
+Pancakes = "darkgamerroblox/pancakes@1.0.0"
 ```
 
 Then run:
@@ -24,13 +24,13 @@ wally install
 ### pesde
 
 ```bash
-pesde add darkgamer/pancakes
+pesde add darkgamerroblox/pancakes
 ```
 
 ### Ember
 
 ```bash
-embr add darkgamer/pancakes
+embr add darkgamerroblox/pancakes
 ```
 
 ## Basic usage
