@@ -55,8 +55,7 @@ print(decoded.coins)
 `src/init.luau` is the main module and `src/Settings.luau` is its child module. The included `default.project.json` maps the `src` directory as one Roblox ModuleScript package, so `require(script.Settings)` works after syncing.
 
 ## Documentation
-
-The complete static documentation site is in [`docs/`](docs/). GitHub Actions deploys that directory directly to GitHub Pages on pushes to `main`.
+https://darkgamerroblox.github.io/Pancakes/
 
 ## Development
 
