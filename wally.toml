@@ -10,16 +10,15 @@ registry = "https://github.com/UpliftGames/wally-index"
 repository = "https://github.com/DarkGamerRoblox/Pancakes"
 homepage = "https://DarkGamerRoblox.github.io/Pancakes/"
 
-exclude = [
-	"docs",
-	".github",
-	"scripts",
-	"README.md",
-	"CHANGELOG.md",
-	"SETUP.md",
-	"pesde.toml",
-	"ember.toml",
+exclude = ["**"]
+
+include = [
+	"src",
+	"src/*",
 	"default.project.json",
+	"wally.toml",
+	"LICENSE",
+	"README.md",
 ]
 
 [dependencies]
