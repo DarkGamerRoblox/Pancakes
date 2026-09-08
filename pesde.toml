@@ -1,14 +1,15 @@
-name = "darkgamer/pancakes"
+name = "darkgamerroblox/pancakes"
 version = "1.0.0"
-description = "High-performance binary serialization for Roblox Luau"
+description = "High-performance binary serialization library for Roblox"
 license = "MIT"
 authors = ["DarkGamer"]
+repository = "https://github.com/darkgamerroblox/Pancakes"
+
 includes = [
-  "pesde.toml",
-  "README.md",
-  "LICENSE",
-  "default.project.json",
-  "src/**/*.luau",
+	"pesde.toml",
+	"README.md",
+	"LICENSE",
+	"src/**/*.luau",
 ]
 
 [target]
