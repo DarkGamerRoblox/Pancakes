@@ -5,6 +5,7 @@ High-performance binary serialization for Roblox Luau.
 Pancakes serializes supported Luau values and Roblox datatypes into compact native `buffer` values. It provides automatic serialization, explicit schemas, SmartSchemas, custom converters, buffer utilities, runtime configuration, and malformed-buffer protection.
 
 ## Installation
+Pesde and Ember are comming soon!
 
 ### Wally
 
@@ -19,18 +20,6 @@ Then run:
 
 ```bash
 wally install
-```
-
-### pesde
-
-```bash
-pesde add darkgamerroblox/pancakes
-```
-
-### Ember
-
-```bash
-embr add darkgamerroblox/pancakes
 ```
 
 ## Basic usage
