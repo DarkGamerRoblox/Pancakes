@@ -1,6 +1,6 @@
 [package]
-name = "darkgamer/pancakes"
-description = "High-performance binary serialization library for Roblox"
+name = "darkgamerroblox/pancakes"
+description = "High-performance binary serialization for Roblox Luau"
 version = "1.0.0"
 license = "MIT"
 authors = ["DarkGamer"]
@@ -8,17 +8,17 @@ realm = "shared"
 registry = "https://github.com/UpliftGames/wally-index"
 
 repository = "https://github.com/DarkGamerRoblox/Pancakes"
-homepage = "https://DarkGamerRoblox.github.io/Pancakes/"
+homepage = "https://darkgamerroblox.github.io/Pancakes/"
 
 exclude = ["**"]
 
 include = [
 	"src",
-	"src/*",
+	"src/**",
 	"default.project.json",
-	"wally.toml",
-	"LICENSE",
 	"README.md",
+	"LICENSE",
+	"wally.toml",
 ]
 
 [dependencies]
