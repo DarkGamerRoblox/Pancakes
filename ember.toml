@@ -1,0 +1,10 @@
+[package]
+name = "darkgamer/pancakes"
+version = "1.0.0"
+description = "High-performance binary serialization for Roblox Luau"
+license = "MIT"
+
+[target]
+environment = "shared"
+main = "src/init.luau"
+includes = ["src", "README.md", "LICENSE", "default.project.json"]

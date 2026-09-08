@@ -1,0 +1,20 @@
+name = "darkgamer/pancakes"
+version = "1.0.0"
+description = "High-performance binary serialization for Roblox Luau"
+license = "MIT"
+authors = ["DarkGamer"]
+includes = [
+  "pesde.toml",
+  "README.md",
+  "LICENSE",
+  "default.project.json",
+  "src/**/*.luau",
+]
+
+[target]
+environment = "roblox"
+lib = "src/init.luau"
+build_files = ["src"]
+
+[indices]
+default = "https://github.com/pesde-pkg/index"

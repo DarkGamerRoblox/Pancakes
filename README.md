@@ -1,2 +1,73 @@
 # Pancakes
-Compact binary serialization for Roblox Luau.
+
+High-performance binary serialization for Roblox Luau.
+
+Pancakes serializes supported Luau values and Roblox datatypes into compact native `buffer` values. It provides automatic serialization, explicit schemas, SmartSchemas, custom converters, buffer utilities, runtime configuration, and malformed-buffer protection.
+
+## Installation
+
+### Wally
+
+Add Pancakes to your `wally.toml`:
+
+```toml
+[dependencies]
+Pancakes = "darkgamer/pancakes@1.0.0"
+```
+
+Then run:
+
+```bash
+wally install
+```
+
+### pesde
+
+```bash
+pesde add darkgamer/pancakes
+```
+
+### Ember
+
+```bash
+embr add darkgamer/pancakes
+```
+
+## Basic usage
+
+```luau
+--!strict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Pancakes = require(ReplicatedStorage.Packages.Pancakes)
+
+local encoded: buffer = Pancakes.SerializeAuto({
+    coins = 1250,
+    name = "Pancake",
+    equipped = true,
+})
+
+local decoded = Pancakes.DeserializeAuto(encoded)
+print(decoded.coins)
+```
+
+## Package layout
+
+`src/init.luau` is the main module and `src/Settings.luau` is its child module. The included `default.project.json` maps the `src` directory as one Roblox ModuleScript package, so `require(script.Settings)` works after syncing.
+
+## Documentation
+
+The complete static documentation site is in [`docs/`](docs/). GitHub Actions deploys that directory directly to GitHub Pages on pushes to `main`.
+
+## Development
+
+Run the repository consistency check before releasing:
+
+```bash
+python scripts/check_release.py
+```
+
+The check verifies that Wally, pesde, Ember, and the source `BUILD_ID` all use the same version.
+
+## License
+
+MIT.
