@@ -57,16 +57,6 @@ print(decoded.coins)
 ## Documentation
 https://darkgamerroblox.github.io/Pancakes/
 
-## Development
-
-Run the repository consistency check before releasing:
-
-```bash
-python scripts/check_release.py
-```
-
-The check verifies that Wally, pesde, Ember, and the source `BUILD_ID` all use the same version.
-
 ## License
 
 MIT.
