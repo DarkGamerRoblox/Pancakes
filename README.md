@@ -49,8 +49,6 @@ print(decoded.coins)
 ## Documentation
 https://darkgamerroblox.github.io/Pancakes/
 
-The documentation includes the complete [supported-type matrix](https://darkgamerroblox.github.io/Pancakes/supported-types/), [configuration reference](https://darkgamerroblox.github.io/Pancakes/configuration/), and [benchmarks](https://darkgamerroblox.github.io/Pancakes/performance/). Raw v1.1 benchmark output is stored in [`benchmarks/v1.1-auto-matrix.txt`](benchmarks/v1.1-auto-matrix.txt).
-
 ## License
 
 MIT.
