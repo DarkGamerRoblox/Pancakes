@@ -1,25 +1,4 @@
 --!strict
---[[
-	Pancakes runtime configuration
-
-	These values are loaded when Pancakes is required. They can also be changed
-	at runtime with Pancakes.Configure(), but changing wire-sensitive settings
-	while messages are in flight can make otherwise-valid buffers undecodable.
-
-	WIRE-SENSITIVE SETTINGS
-		commonKeys and stringCacheMinLength must have identical values on every
-		writer and reader. This includes the order of entries in commonKeys.
-
-	RECOMMENDED NETWORK DEFAULTS
-		Keep schemaValidationEnabled and strictBoundsChecking enabled when data
-		can originate from clients. Disable validation only for measured, trusted
-		hot paths after schemas are stable.
-
-	PERFORMANCE NOTES
-		The defaults favor predictable performance and safe decoding. Settings
-		that trade correctness guarantees for speed are explicitly marked unsafe.
-]]
-
 export type SerializerConfig = {
 	poolingEnabled: boolean,
 	writerPoolMaxPerBucket: number,
@@ -34,10 +13,12 @@ export type SerializerConfig = {
 	strictBoundsChecking: boolean,
 	maxDeclaredCountBytes: number,
 	debugAsserts: boolean,
+	maxBufferBytes: number,
+	maxSequenceKeypoints: number,
+	maxInstancePathDepth: number,
 }
 
 local DEFAULT_COMMON_KEYS: {string} = {}
-
 local Settings: SerializerConfig = {
 	poolingEnabled = true,
 	sortedKeysCacheEnabled = true,
@@ -51,6 +32,9 @@ local Settings: SerializerConfig = {
 	rleThreshold = 0.3,
 	stringCacheMinLength = 16,
 	maxDeclaredCountBytes = 1,
+	maxBufferBytes = 16 * 1024 * 1024,
+	maxSequenceKeypoints = 31,
+	maxInstancePathDepth = 270,
 
 	commonKeys = DEFAULT_COMMON_KEYS,
 }

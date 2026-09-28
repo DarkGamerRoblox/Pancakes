@@ -1,11 +1,14 @@
 # Pancakes
 
+<img src="docs/favicon.png" width="120" alt="Pancakes icon">
+
 High-performance binary serialization for Roblox Luau.
 
 Pancakes serializes supported Luau values and Roblox datatypes into compact native `buffer` values. It provides automatic serialization, explicit schemas, SmartSchemas, custom converters, buffer utilities, runtime configuration, and malformed-buffer protection.
 
+Version 1.1 expands both Auto and Schema support across Roblox datatypes, including raw buffers, sequences and keypoints, regions, rays, fonts, physical properties, tween information, path waypoints, and more.
+
 ## Installation
-Pesde and Ember are comming soon!
 
 ### Wally
 
@@ -13,7 +16,7 @@ Add Pancakes to your `wally.toml`:
 
 ```toml
 [dependencies]
-Pancakes = "darkgamerroblox/pancakes@1.0.0"
+Pancakes = "darkgamerroblox/pancakes@1.1.0"
 ```
 
 Then run:
@@ -45,6 +48,8 @@ print(decoded.coins)
 
 ## Documentation
 https://darkgamerroblox.github.io/Pancakes/
+
+The documentation includes the complete [supported-type matrix](https://darkgamerroblox.github.io/Pancakes/supported-types/), [configuration reference](https://darkgamerroblox.github.io/Pancakes/configuration/), and [benchmarks](https://darkgamerroblox.github.io/Pancakes/performance/). Raw v1.1 benchmark output is stored in [`benchmarks/v1.1-auto-matrix.txt`](benchmarks/v1.1-auto-matrix.txt).
 
 ## License
 

@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_NAME = "darkgamer/pancakes"
+EXPECTED_NAME = "darkgamerroblox/pancakes"
 MANIFESTS = ("wally.toml", "pesde.toml", "ember.toml")
 
 
@@ -41,14 +41,14 @@ def main() -> int:
 
     version = unique_versions.pop()
     source = (ROOT / "src" / "init.luau").read_text(encoding="utf-8")
-    match = re.search(r'BUILD_ID\s+"([^"]+)"', source)
+    match = re.search(r'Pancakes\.Version\s*=\s*"([^"]+)"', source)
     if match is None:
-        print("src/init.luau: BUILD_ID not found")
+        print("src/init.luau: Pancakes.Version not found")
         return 1
 
-    expected_build = f"{version}-pancakes"
-    if match.group(1) != expected_build:
-        print(f"BUILD_ID mismatch: expected {expected_build!r}, got {match.group(1)!r}")
+    public_version = ".".join(version.split(".")[:2])
+    if match.group(1) != public_version:
+        print(f"Public version mismatch: expected {public_version!r}, got {match.group(1)!r}")
         return 1
 
     required = [
@@ -62,7 +62,7 @@ def main() -> int:
         print("Missing required files:", ", ".join(missing))
         return 1
 
-    print(f"Pancakes {version}: manifests, BUILD_ID, package layout, and docs are in sync.")
+    print(f"Pancakes {version}: manifests, public version, package layout, and docs are in sync.")
     return 0
 
 

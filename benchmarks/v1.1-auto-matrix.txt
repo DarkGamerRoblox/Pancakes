@@ -1,0 +1,528 @@
+  Stride preview 1.1.1 loaded: shared crowd fields and batched NPC demo
+  Enabled benchmark libraries: Pancakes, VoidSentryUltimate, Sera, Squash, Scrivener
+  
+================================================================================
+  LIGHT PAYLOAD — 40 items
+  ================================================================================
+  Small nested inventory, 40 items (Pancakes Auto)         | SER    16.15 us | DES    18.13 us |    838 B
+  Small nested inventory, 40 items (Pancakes Schema)       | SER     8.65 us | DES    18.70 us |    756 B
+  Small nested inventory, 40 items (Sera)                  | SER    17.79 us | DES    27.53 us |    987 B
+  Small nested inventory, 40 items (VoidSentryUltimate)    | SER    19.44 us | DES    76.38 us |    987 B
+  Small nested inventory, 40 items (Squash)                | SER    70.99 us | DES    89.74 us |    907 B
+  Small nested inventory, 40 items (Scrivener)             | SER    25.44 us | DES    58.31 us |    908 B
+  
+================================================================================
+  HEAVY PAYLOAD — 120 items
+  ================================================================================
+  Heavy nested inventory, 120 items (Pancakes Auto)        | SER    60.12 us | DES    75.57 us |   2834 B
+  Heavy nested inventory, 120 items (Pancakes Schema)      | SER    77.02 us | DES    98.35 us |   2651 B
+  Heavy nested inventory, 120 items (Sera)                 | SER    93.34 us | DES   148.46 us |   4342 B
+  Heavy nested inventory, 120 items (VoidSentryUltimate)   | SER   105.62 us | DES   281.63 us |   4342 B
+  Heavy nested inventory, 120 items (Squash)               | SER   417.47 us | DES   529.27 us |   3514 B
+  Heavy nested inventory, 120 items (Scrivener)            | SER   149.35 us | DES   335.72 us |   3517 B
+  
+================================================================================
+  OPTIONAL / NIL-HEAVY PAYLOADS
+  ================================================================================
+  
+-- LIGHT OPTIONAL: 40 items / optional string + number + boolean --
+  Small NIL inventory, 40 items (Pancakes Auto)            | SER    17.30 us | DES    31.93 us |   1253 B
+  Small NIL inventory, 40 items (Pancakes Schema)          | SER    17.60 us | DES    26.37 us |   1132 B
+  Small NIL inventory, 40 items (Sera)                     | SER    30.10 us | DES    44.85 us |   1555 B
+  Small NIL inventory, 40 items (VoidSentryUltimate)       | SER    37.63 us | DES    78.47 us |   1555 B
+  Small NIL inventory, 40 items (Squash)                   | SER    87.75 us | DES   126.32 us |   1334 B
+  Small NIL inventory, 40 items (Scrivener)                | SER    40.60 us | DES    71.90 us |   1335 B
+  
+-- HEAVY OPTIONAL: 120 items / optional string + number + boolean --
+  Heavy NIL inventory, 120 items (Pancakes Auto)           | SER    93.70 us | DES   117.05 us |   4123 B
+  Heavy NIL inventory, 120 items (Pancakes Schema)         | SER   103.01 us | DES   119.53 us |   3975 B
+  Heavy NIL inventory, 120 items (Sera)                    | SER   155.05 us | DES   236.03 us |   6036 B
+  Heavy NIL inventory, 120 items (VoidSentryUltimate)      | SER   154.45 us | DES   387.74 us |   6036 B
+  Heavy NIL inventory, 120 items (Squash)                  | SER   373.37 us | DES   636.87 us |   4790 B
+  Heavy NIL inventory, 120 items (Scrivener)               | SER   156.70 us | DES   350.33 us |   4793 B
+  
+================================================================================
+  INDIVIDUAL TYPES — ENABLED LIBRARIES
+  ================================================================================
+  
+-- nil --
+  nil (Pancakes Auto)                                      | SER     0.16 us | DES     0.12 us |      2 B
+  nil (Pancakes Schema)                                    | SER     0.36 us | DES     0.38 us |      5 B
+  nil (VoidSentryUltimate Optional<U8>)                    | SER     0.24 us | DES     0.10 us |      1 B
+  nil (Sera Optional<Uint8>)                               | SER     0.43 us | DES     0.22 us |      1 B
+  nil (Squash Optional<u8>)                                | SER     0.62 us | DES     0.24 us |      1 B
+  nil (Scrivener Optional<u8>)                             | SER     0.32 us | DES     0.20 us |      1 B
+  
+-- boolean false --
+  boolean false (Pancakes Auto)                            | SER     0.19 us | DES     0.14 us |      2 B
+  boolean false (Pancakes Schema)                          | SER     0.19 us | DES     0.43 us |      5 B
+  boolean false (VoidSentryUltimate Bool)                  | SER     0.19 us | DES     0.09 us |      1 B
+  boolean false (Sera Boolean)                             | SER     0.63 us | DES     0.19 us |      1 B
+  boolean false (Squash boolean)                           | SER     0.46 us | DES     0.28 us |      1 B
+  boolean false (Scrivener bool_simple)                    | SER     0.30 us | DES     0.21 us |      1 B
+  
+-- boolean true --
+  boolean true (Pancakes Auto)                             | SER     0.25 us | DES     0.18 us |      2 B
+  boolean true (Pancakes Schema)                           | SER     0.20 us | DES     0.39 us |      5 B
+  boolean true (VoidSentryUltimate Bool)                   | SER     0.28 us | DES     0.09 us |      1 B
+  boolean true (Sera Boolean)                              | SER     0.36 us | DES     0.18 us |      1 B
+  boolean true (Squash boolean)                            | SER     0.41 us | DES     0.34 us |      1 B
+  boolean true (Scrivener bool_simple)                     | SER     0.33 us | DES     0.24 us |      1 B
+  
+-- number zero --
+  number zero (Pancakes Auto)                              | SER     0.21 us | DES     0.12 us |      2 B
+  number zero (Pancakes Schema)                            | SER     0.22 us | DES     0.29 us |      5 B
+  number zero (VoidSentryUltimate U8)                      | SER     0.22 us | DES     0.08 us |      1 B
+  number zero (Sera Uint8)                                 | SER     0.35 us | DES     0.21 us |      1 B
+  number zero (Squash u8)                                  | SER     0.72 us | DES     0.34 us |      1 B
+  number zero (Scrivener u8)                               | SER     0.40 us | DES     0.22 us |      1 B
+  
+-- number one --
+  number one (Pancakes Auto)                               | SER     0.12 us | DES     0.12 us |      2 B
+  number one (Pancakes Schema)                             | SER     0.29 us | DES     0.39 us |      5 B
+  number one (VoidSentryUltimate U8)                       | SER     0.29 us | DES     0.09 us |      1 B
+  number one (Sera Uint8)                                  | SER     0.36 us | DES     0.48 us |      1 B
+  number one (Squash u8)                                   | SER     0.50 us | DES     0.31 us |      1 B
+  number one (Scrivener u8)                                | SER     0.40 us | DES     0.25 us |      1 B
+  
+-- number nibble --
+  number nibble (Pancakes Auto)                            | SER     0.17 us | DES     0.13 us |      3 B
+  number nibble (Pancakes Schema)                          | SER     0.19 us | DES     0.26 us |      5 B
+  number nibble (VoidSentryUltimate U8)                    | SER     0.18 us | DES     0.15 us |      1 B
+  number nibble (Sera Uint8)                               | SER     0.53 us | DES     0.21 us |      1 B
+  number nibble (Squash u8)                                | SER     0.54 us | DES     0.29 us |      1 B
+  number nibble (Scrivener u8)                             | SER     0.35 us | DES     0.27 us |      1 B
+  
+-- number I8 --
+  number I8 (Pancakes Auto)                                | SER     0.14 us | DES     0.12 us |      3 B
+  number I8 (Pancakes Schema)                              | SER     0.19 us | DES     0.23 us |      5 B
+  number I8 (VoidSentryUltimate I8)                        | SER     0.18 us | DES     0.13 us |      1 B
+  number I8 (Sera Int8)                                    | SER     0.35 us | DES     0.18 us |      1 B
+  number I8 (Squash i8)                                    | SER     0.34 us | DES     0.34 us |      1 B
+  number I8 (Scrivener i8)                                 | SER     0.39 us | DES     0.17 us |      1 B
+  
+-- number I16 --
+  number I16 (Pancakes Auto)                               | SER     0.23 us | DES     0.19 us |      4 B
+  number I16 (Pancakes Schema)                             | SER     0.22 us | DES     0.31 us |      6 B
+  number I16 (VoidSentryUltimate I16)                      | SER     0.33 us | DES     0.09 us |      2 B
+  number I16 (Sera Int16)                                  | SER     0.56 us | DES     0.20 us |      2 B
+  number I16 (Squash i16)                                  | SER     0.43 us | DES     0.25 us |      2 B
+  number I16 (Scrivener i16)                               | SER     0.42 us | DES     0.28 us |      2 B
+  
+-- number ZigZag I32 --
+  number ZigZag I32 (Pancakes Auto)                        | SER     0.15 us | DES     0.16 us |      5 B
+  number ZigZag I32 (Pancakes Schema)                      | SER     0.26 us | DES     0.48 us |      7 B
+  number ZigZag I32 (VoidSentryUltimate I32)               | SER     0.29 us | DES     0.09 us |      4 B
+  number ZigZag I32 (Sera Int32)                           | SER     0.38 us | DES     0.21 us |      4 B
+  number ZigZag I32 (Squash i32)                           | SER     0.38 us | DES     0.27 us |      4 B
+  number ZigZag I32 (Scrivener i32)                        | SER     0.32 us | DES     0.25 us |      4 B
+  
+-- number U32 --
+  number U32 (Pancakes Auto)                               | SER     0.13 us | DES     0.12 us |      6 B
+  number U32 (Pancakes Schema)                             | SER     0.21 us | DES     0.37 us |      8 B
+  number U32 (VoidSentryUltimate U32)                      | SER     0.28 us | DES     0.09 us |      4 B
+  number U32 (Sera Uint32)                                 | SER     0.52 us | DES     0.29 us |      4 B
+  number U32 (Squash u32)                                  | SER     0.64 us | DES     0.27 us |      4 B
+  number U32 (Scrivener u32)                               | SER     0.33 us | DES     0.19 us |      4 B
+  
+-- number F32 --
+  number F32 (Pancakes Auto)                               | SER     0.16 us | DES     0.21 us |      6 B
+  number F32 (Pancakes Schema)                             | SER     0.30 us | DES     0.26 us |      8 B
+  number F32 (VoidSentryUltimate F32)                      | SER     0.25 us | DES     0.12 us |      4 B
+  number F32 (Sera Float32)                                | SER     0.35 us | DES     0.19 us |      4 B
+  number F32 (Squash f32)                                  | SER     0.59 us | DES     0.39 us |      4 B
+  number F32 (Scrivener f32)                               | SER     0.30 us | DES     0.43 us |      4 B
+  
+-- number F64 --
+  number F64 (Pancakes Auto)                               | SER     0.13 us | DES     0.12 us |     10 B
+  number F64 (Pancakes Schema)                             | SER     0.27 us | DES     0.27 us |     12 B
+  number F64 (VoidSentryUltimate F64)                      | SER     0.27 us | DES     0.11 us |      8 B
+  number F64 (Sera Float64)                                | SER     0.33 us | DES     0.22 us |      8 B
+  number F64 (Squash f64)                                  | SER     0.35 us | DES     0.27 us |      8 B
+  number F64 (Scrivener f64)                               | SER     0.48 us | DES     0.19 us |      8 B
+  
+-- string empty --
+  string empty (Pancakes Auto)                             | SER     0.33 us | DES     0.13 us |      2 B
+  string empty (Pancakes Schema)                           | SER     0.35 us | DES     0.39 us |      5 B
+  string empty (VoidSentryUltimate String)                 | SER     0.20 us | DES     0.15 us |      2 B
+  string empty (Sera String16)                             | SER     0.45 us | DES     0.44 us |      2 B
+  string empty (Squash Typed)                              | SKIP: no equivalent typed codec
+  string empty (Scrivener string)                          | SER     0.36 us | DES     0.42 us |      1 B
+  
+-- string tiny --
+  string tiny (Pancakes Auto)                              | SER     0.26 us | DES     0.21 us |     11 B
+  string tiny (Pancakes Schema)                            | SER     0.28 us | DES     0.38 us |     13 B
+  string tiny (VoidSentryUltimate String)                  | SER     0.24 us | DES     0.14 us |     10 B
+  string tiny (Sera String16)                              | SER     0.43 us | DES     0.31 us |     10 B
+  string tiny (Squash Typed)                               | SKIP: no equivalent typed codec
+  string tiny (Scrivener string)                           | SER     0.35 us | DES     0.45 us |      9 B
+  
+-- string long 512 B --
+  string long 512 B (Pancakes Auto)                        | SER     0.37 us | DES     0.39 us |    519 B
+  string long 512 B (Pancakes Schema)                      | SER     0.73 us | DES     0.51 us |    521 B
+  string long 512 B (VoidSentryUltimate String)            | SER     0.80 us | DES     0.32 us |    514 B
+  string long 512 B (Sera String16)                        | SER     0.71 us | DES     0.53 us |    514 B
+  string long 512 B (Squash Typed)                         | SKIP: no equivalent typed codec
+  string long 512 B (Scrivener string)                     | SER     1.06 us | DES     0.63 us |    514 B
+  
+-- buffer 256 B --
+  buffer 256 B (Pancakes Auto)                             | SER     0.57 us | DES     0.28 us |    261 B
+  buffer 256 B (Pancakes Schema)                           | SER     0.85 us | DES     0.72 us |    265 B
+  buffer 256 B (VoidSentryUltimate Buffer)                 | SER     0.43 us | DES     0.41 us |    258 B
+  buffer 256 B (Sera Typed)                                | SKIP: no equivalent typed codec
+  buffer 256 B (Squash Typed)                              | SKIP: no equivalent typed codec
+  buffer 256 B (Scrivener Typed)                           | SKIP: no equivalent typed codec
+  
+-- Vector2 float --
+  Vector2 float (Pancakes Auto)                            | SER     0.19 us | DES     0.29 us |     10 B
+  Vector2 float (Pancakes Schema)                          | SER     0.22 us | DES     0.34 us |     12 B
+  Vector2 float (VoidSentryUltimate Vector2)               | SER     0.25 us | DES     0.17 us |      8 B
+  Vector2 float (Sera Typed)                               | SKIP: no equivalent typed codec
+  Vector2 float (Squash Typed)                             | SKIP: no equivalent typed codec
+  Vector2 float (Scrivener Typed)                          | SKIP: no equivalent typed codec
+  
+-- Vector2 integer --
+  Vector2 integer (Pancakes Auto)                          | SER     0.33 us | DES     0.23 us |      6 B
+  Vector2 integer (Pancakes Schema)                        | SER     0.22 us | DES     0.52 us |     12 B
+  Vector2 integer (VoidSentryUltimate Vector2)             | SER     0.17 us | DES     0.13 us |      8 B
+  Vector2 integer (Sera Typed)                             | SKIP: no equivalent typed codec
+  Vector2 integer (Squash Typed)                           | SKIP: no equivalent typed codec
+  Vector2 integer (Scrivener Typed)                        | SKIP: no equivalent typed codec
+  
+-- Vector3 float --
+  Vector3 float (Pancakes Auto)                            | SER     0.24 us | DES     0.30 us |     14 B
+  Vector3 float (Pancakes Schema)                          | SER     0.26 us | DES     0.44 us |     16 B
+  Vector3 float (VoidSentryUltimate Vector)                | SER     0.33 us | DES     0.09 us |     12 B
+  Vector3 float (Sera Vector3)                             | SER     0.37 us | DES     0.30 us |     12 B
+  Vector3 float (Squash Typed)                             | SKIP: no equivalent typed codec
+  Vector3 float (Scrivener vector3<f32>)                   | SER     0.40 us | DES     0.36 us |     12 B
+  
+-- Vector3 integer --
+  Vector3 integer (Pancakes Auto)                          | SER     0.20 us | DES     0.21 us |      8 B
+  Vector3 integer (Pancakes Schema)                        | SER     0.36 us | DES     0.31 us |     16 B
+  Vector3 integer (VoidSentryUltimate Vector)              | SER     0.17 us | DES     0.18 us |     12 B
+  Vector3 integer (Sera Vector3)                           | SER     0.39 us | DES     0.29 us |     12 B
+  Vector3 integer (Squash Typed)                           | SKIP: no equivalent typed codec
+  Vector3 integer (Scrivener vector3<f32>)                 | SER     0.51 us | DES     0.34 us |     12 B
+  
+-- Vector2int16 --
+  Vector2int16 (Pancakes Auto)                             | SER     0.17 us | DES     0.28 us |      7 B
+  Vector2int16 (Pancakes Schema)                           | SER     1.10 us | DES     0.65 us |      8 B
+  Vector2int16 (VoidSentryUltimate Typed)                  | SKIP: codec unavailable in installed version
+  Vector2int16 (Sera Typed)                                | SKIP: no equivalent typed codec
+  Vector2int16 (Squash Vector2int16)                       | SER     0.36 us | DES     0.37 us |      4 B
+  Vector2int16 (Scrivener Typed)                           | SKIP: no equivalent typed codec
+  
+-- Vector3int16 --
+  Vector3int16 (Pancakes Auto)                             | SER     0.29 us | DES     0.26 us |      9 B
+  Vector3int16 (Pancakes Schema)                           | SER     1.11 us | DES     0.49 us |     10 B
+  Vector3int16 (VoidSentryUltimate Typed)                  | SKIP: codec unavailable in installed version
+  Vector3int16 (Sera Typed)                                | SKIP: no equivalent typed codec
+  Vector3int16 (Squash Vector3int16)                       | SER     0.63 us | DES     0.36 us |      6 B
+  Vector3int16 (Scrivener Typed)                           | SKIP: no equivalent typed codec
+  
+-- CFrame identity --
+  CFrame identity (Pancakes Auto)                          | SER     0.54 us | DES     0.42 us |     26 B
+  CFrame identity (Pancakes Schema)                        | SER     0.30 us | DES     0.34 us |     28 B
+  CFrame identity (VoidSentryUltimate CFrame)              | SER     0.30 us | DES     0.31 us |     48 B
+  CFrame identity (Sera CFrame)                            | SER     0.55 us | DES     0.35 us |     48 B
+  CFrame identity (Squash Typed)                           | SKIP: no equivalent typed codec
+  CFrame identity (Scrivener cframe<f32>)                  | SER     1.41 us | DES     1.01 us |     13 B
+  
+-- CFrame simple --
+  CFrame simple (Pancakes Auto)                            | SER     0.44 us | DES     0.26 us |     26 B
+  CFrame simple (Pancakes Schema)                          | SER     0.40 us | DES     0.43 us |     28 B
+  CFrame simple (VoidSentryUltimate CFrame)                | SER     0.30 us | DES     0.25 us |     48 B
+  CFrame simple (Sera CFrame)                              | SER     0.61 us | DES     0.28 us |     48 B
+  CFrame simple (Squash Typed)                             | SKIP: no equivalent typed codec
+  cached cframe codecs may not have the same position_scale if a different position_scale was defined
+  CFrame simple (Scrivener cframe<f32>)                    | SER     0.68 us | DES     0.91 us |     19 B
+  
+-- CFrame general --
+  CFrame general (Pancakes Auto)                           | SER     0.51 us | DES     0.27 us |     50 B
+  CFrame general (Pancakes Schema)                         | SER     0.34 us | DES     0.40 us |     52 B
+  CFrame general (VoidSentryUltimate CFrame)               | SER     0.31 us | DES     0.25 us |     48 B
+  CFrame general (Sera CFrame)                             | SER     0.65 us | DES     0.34 us |     48 B
+  CFrame general (Squash Typed)                            | SKIP: no equivalent typed codec
+  cached cframe codecs may not have the same position_scale if a different position_scale was defined
+  CFrame general (Scrivener cframe<f32>)                   | SER     0.82 us | DES     0.60 us |     19 B
+  
+-- Color3 --
+  Color3 (Pancakes Auto)                                   | SER     0.21 us | DES     0.38 us |      5 B
+  Color3 (Pancakes Schema)                                 | SER     0.38 us | DES     0.50 us |      7 B
+  Color3 (VoidSentryUltimate Color3)                       | SER     0.18 us | DES     0.23 us |      3 B
+  Color3 (Sera Color3)                                     | SER     0.64 us | DES     0.25 us |      3 B
+  Color3 (Squash Color3)                                   | SER     0.46 us | DES     0.43 us |      3 B
+  Color3 (Scrivener color3)                                | SER     0.37 us | DES     0.64 us |      3 B
+  
+-- BrickColor --
+  BrickColor (Pancakes Auto)                               | SER     0.16 us | DES     0.30 us |      4 B
+  BrickColor (Pancakes Schema)                             | SER     1.49 us | DES     0.49 us |      6 B
+  BrickColor (VoidSentryUltimate Typed)                    | SKIP: codec unavailable in installed version
+  BrickColor (Sera Typed)                                  | SKIP: no equivalent typed codec
+  BrickColor (Squash BrickColor)                           | SER     0.60 us | DES     0.37 us |      2 B
+  BrickColor (Scrivener Typed)                             | SKIP: no equivalent typed codec
+  
+-- UDim --
+  UDim (Pancakes Auto)                                     | SER     0.33 us | DES     0.23 us |      8 B
+  UDim (Pancakes Schema)                                   | SER     0.24 us | DES     0.45 us |     10 B
+  UDim (VoidSentryUltimate Typed)                          | SKIP: codec unavailable in installed version
+  UDim (Sera Typed)                                        | SKIP: no equivalent typed codec
+  UDim (Squash Typed)                                      | SKIP: no equivalent typed codec
+  UDim (Scrivener Typed)                                   | SKIP: no equivalent typed codec
+  
+-- UDim2 --
+  UDim2 (Pancakes Auto)                                    | SER     0.48 us | DES     0.35 us |     14 B
+  UDim2 (Pancakes Schema)                                  | SER     0.59 us | DES     0.37 us |     16 B
+  UDim2 (VoidSentryUltimate UDim2)                         | SER     0.25 us | DES     0.23 us |     16 B
+  UDim2 (Sera Typed)                                       | SKIP: no equivalent typed codec
+  UDim2 (Squash Typed)                                     | SKIP: no equivalent typed codec
+  UDim2 (Scrivener Typed)                                  | SKIP: no equivalent typed codec
+  
+-- Instance --
+  Instance (Pancakes Auto)                                 | SER     5.65 us | DES     3.16 us |     41 B
+  Instance (Pancakes Schema)                               | SER     3.86 us | DES     0.65 us |     43 B
+  Instance (VoidSentryUltimate Instance)                   | SER     0.20 us | DES     0.17 us |      2 B
+  Instance (Sera Typed)                                    | SKIP: no equivalent typed codec
+  Instance (Squash Typed)                                  | SKIP: no equivalent typed codec
+  Instance (Scrivener Typed)                               | SKIP: no equivalent typed codec
+  
+-- EnumItem --
+  EnumItem (Pancakes Auto)                                 | SER     2.08 us | DES     1.25 us |     11 B
+  EnumItem (Pancakes Schema)                               | SER     1.37 us | DES     0.92 us |      5 B
+  [SKIP] EnumItem (VoidSentryUltimate Enum) :: serialize failed: ReplicatedStorage.Packages.VoidSentryUltimate:4440: attempt to index function with number
+  EnumItem (Sera Typed)                                    | SKIP: no equivalent typed codec
+  EnumItem (Squash EnumItem)                               | SER     0.61 us | DES     0.32 us |      1 B
+  EnumItem (Scrivener Typed)                               | SKIP: no equivalent typed codec
+  
+-- DateTime --
+  DateTime (Pancakes Auto)                                 | SER     0.49 us | DES     0.61 us |      8 B
+  DateTime (Pancakes Schema)                               | SER     1.18 us | DES     0.84 us |     10 B
+  DateTime (VoidSentryUltimate Typed)                      | SKIP: codec unavailable in installed version
+  DateTime (Sera Typed)                                    | SKIP: no equivalent typed codec
+  DateTime (Squash DateTime)                               | SER     0.44 us | DES     0.81 us |      6 B
+  DateTime (Scrivener Typed)                               | SKIP: no equivalent typed codec
+  
+-- NumberRange --
+  NumberRange (Pancakes Auto)                              | SER     0.18 us | DES     0.40 us |     11 B
+  NumberRange (Pancakes Schema)                            | SER     1.08 us | DES     0.50 us |     12 B
+  NumberRange (VoidSentryUltimate Typed)                   | SKIP: codec unavailable in installed version
+  NumberRange (Sera Typed)                                 | SKIP: no equivalent typed codec
+  NumberRange (Squash Typed)                               | SKIP: no equivalent typed codec
+  NumberRange (Scrivener Typed)                            | SKIP: no equivalent typed codec
+  
+-- NumberSequence --
+  NumberSequence (Pancakes Auto)                           | SER     0.65 us | DES     0.75 us |     39 B
+  NumberSequence (Pancakes Schema)                         | SER     1.85 us | DES     0.57 us |     41 B
+  NumberSequence (VoidSentryUltimate Typed)                | SKIP: codec unavailable in installed version
+  NumberSequence (Sera Typed)                              | SKIP: no equivalent typed codec
+  NumberSequence (Squash Typed)                            | SKIP: no equivalent typed codec
+  NumberSequence (Scrivener Typed)                         | SKIP: no equivalent typed codec
+  
+-- ColorSequence --
+  ColorSequence (Pancakes Auto)                            | SER     0.98 us | DES     1.62 us |     24 B
+  ColorSequence (Pancakes Schema)                          | SER     2.58 us | DES     0.91 us |     26 B
+  ColorSequence (VoidSentryUltimate Typed)                 | SKIP: codec unavailable in installed version
+  ColorSequence (Sera Typed)                               | SKIP: no equivalent typed codec
+  ColorSequence (Squash ColorSequence)                     | SER     1.76 us | DES     1.71 us |     13 B
+  ColorSequence (Scrivener Typed)                          | SKIP: no equivalent typed codec
+  
+-- NumberSequenceKeypoint --
+  NumberSequenceKeypoint (Pancakes Auto)                   | SER     0.22 us | DES     0.27 us |     15 B
+  NumberSequenceKeypoint (Pancakes Schema)                 | SER     1.48 us | DES     0.59 us |     16 B
+  NumberSequenceKeypoint (VoidSentryUltimate Typed)        | SKIP: codec unavailable in installed version
+  NumberSequenceKeypoint (Sera Typed)                      | SKIP: no equivalent typed codec
+  NumberSequenceKeypoint (Squash Typed)                    | SKIP: no equivalent typed codec
+  NumberSequenceKeypoint (Scrivener Typed)                 | SKIP: no equivalent typed codec
+  
+-- ColorSequenceKeypoint --
+  ColorSequenceKeypoint (Pancakes Auto)                    | SER     0.51 us | DES     0.42 us |     10 B
+  ColorSequenceKeypoint (Pancakes Schema)                  | SER     1.27 us | DES     0.50 us |     11 B
+  ColorSequenceKeypoint (VoidSentryUltimate Typed)         | SKIP: codec unavailable in installed version
+  ColorSequenceKeypoint (Sera Typed)                       | SKIP: no equivalent typed codec
+  ColorSequenceKeypoint (Squash ColorSequenceKeypoint)     | SER     0.61 us | DES     0.39 us |      4 B
+  ColorSequenceKeypoint (Scrivener Typed)                  | SKIP: no equivalent typed codec
+  
+-- Axes --
+  Axes (Pancakes Auto)                                     | SER     0.33 us | DES     0.41 us |      3 B
+  Axes (Pancakes Schema)                                   | SER     1.12 us | DES     0.66 us |      5 B
+  Axes (VoidSentryUltimate Typed)                          | SKIP: codec unavailable in installed version
+  Axes (Sera Typed)                                        | SKIP: no equivalent typed codec
+  Axes (Squash Axes)                                       | SER     1.19 us | DES     0.47 us |      2 B
+  Axes (Scrivener Typed)                                   | SKIP: no equivalent typed codec
+  
+-- Faces --
+  Faces (Pancakes Auto)                                    | SER     0.28 us | DES     1.01 us |      3 B
+  Faces (Pancakes Schema)                                  | SER     1.16 us | DES     0.51 us |      5 B
+  Faces (VoidSentryUltimate Typed)                         | SKIP: codec unavailable in installed version
+  Faces (Sera Typed)                                       | SKIP: no equivalent typed codec
+  Faces (Squash Faces)                                     | SER     0.53 us | DES     0.37 us |      1 B
+  Faces (Scrivener Typed)                                  | SKIP: no equivalent typed codec
+  
+-- Rect --
+  Rect (Pancakes Auto)                                     | SER     0.55 us | DES     0.37 us |     19 B
+  Rect (Pancakes Schema)                                   | SER     1.88 us | DES     0.60 us |     20 B
+  Rect (VoidSentryUltimate Typed)                          | SKIP: codec unavailable in installed version
+  Rect (Sera Typed)                                        | SKIP: no equivalent typed codec
+  Rect (Squash Typed)                                      | SKIP: no equivalent typed codec
+  Rect (Scrivener Typed)                                   | SKIP: no equivalent typed codec
+  
+-- Ray --
+  Ray (Pancakes Auto)                                      | SER     0.25 us | DES     0.32 us |     27 B
+  Ray (Pancakes Schema)                                    | SER     1.21 us | DES     0.57 us |     28 B
+  Ray (VoidSentryUltimate Typed)                           | SKIP: codec unavailable in installed version
+  Ray (Sera Typed)                                         | SKIP: no equivalent typed codec
+  Ray (Squash Typed)                                       | SKIP: no equivalent typed codec
+  Ray (Scrivener Typed)                                    | SKIP: no equivalent typed codec
+  
+-- Font --
+  Font (Pancakes Auto)                                     | SER     3.29 us | DES     4.37 us |     62 B
+  Font (Pancakes Schema)                                   | SER     2.26 us | DES     0.99 us |     64 B
+  Font (VoidSentryUltimate Typed)                          | SKIP: codec unavailable in installed version
+  Font (Sera Typed)                                        | SKIP: no equivalent typed codec
+  Font (Squash Font)                                       | SER     1.76 us | DES     1.96 us |     17 B
+  Font (Scrivener Typed)                                   | SKIP: no equivalent typed codec
+  
+-- PhysicalProperties --
+  PhysicalProperties (Pancakes Auto)                       | SER     0.94 us | DES     1.08 us |     23 B
+  PhysicalProperties (Pancakes Schema)                     | SER     1.36 us | DES     0.47 us |     24 B
+  PhysicalProperties (VoidSentryUltimate Typed)            | SKIP: codec unavailable in installed version
+  PhysicalProperties (Sera Typed)                          | SKIP: no equivalent typed codec
+  PhysicalProperties (Squash PhysicalProperties)           | SER     0.80 us | DES     0.85 us |     20 B
+  PhysicalProperties (Scrivener Typed)                     | SKIP: no equivalent typed codec
+  
+-- Region3 --
+  Region3 (Pancakes Auto)                                  | SER     0.62 us | DES     0.37 us |     27 B
+  Region3 (Pancakes Schema)                                | SER     1.46 us | DES     0.52 us |     28 B
+  Region3 (VoidSentryUltimate Typed)                       | SKIP: codec unavailable in installed version
+  Region3 (Sera Typed)                                     | SKIP: no equivalent typed codec
+  Region3 (Squash Typed)                                   | SKIP: no equivalent typed codec
+  Region3 (Scrivener Typed)                                | SKIP: no equivalent typed codec
+  
+-- Region3int16 --
+  Region3int16 (Pancakes Auto)                             | SER     0.38 us | DES     0.75 us |     15 B
+  Region3int16 (Pancakes Schema)                           | SER     1.34 us | DES     0.51 us |     16 B
+  Region3int16 (VoidSentryUltimate Typed)                  | SKIP: codec unavailable in installed version
+  Region3int16 (Sera Typed)                                | SKIP: no equivalent typed codec
+  Region3int16 (Squash Region3int16)                       | SER     0.74 us | DES     0.50 us |     12 B
+  Region3int16 (Scrivener Typed)                           | SKIP: no equivalent typed codec
+  
+-- TweenInfo --
+  TweenInfo (Pancakes Auto)                                | SER     2.41 us | DES     1.65 us |     15 B
+  TweenInfo (Pancakes Schema)                              | SER     1.65 us | DES     0.47 us |     16 B
+  TweenInfo (VoidSentryUltimate Typed)                     | SKIP: codec unavailable in installed version
+  TweenInfo (Sera Typed)                                   | SKIP: no equivalent typed codec
+  TweenInfo (Squash TweenInfo)                             | SER     2.25 us | DES     0.70 us |     12 B
+  TweenInfo (Scrivener Typed)                              | SKIP: no equivalent typed codec
+  
+-- PathWaypoint --
+  PathWaypoint (Pancakes Auto)                             | SER     2.01 us | DES     2.04 us |     23 B
+  PathWaypoint (Pancakes Schema)                           | SER     1.71 us | DES     0.92 us |     24 B
+  PathWaypoint (VoidSentryUltimate Typed)                  | SKIP: codec unavailable in installed version
+  PathWaypoint (Sera Typed)                                | SKIP: no equivalent typed codec
+  PathWaypoint (Squash Typed)                              | SKIP: no equivalent typed codec
+  PathWaypoint (Scrivener Typed)                           | SKIP: no equivalent typed codec
+  
+-- custom converter --
+  custom converter (Pancakes Auto)                         | SER     2.31 us | DES     2.42 us |     15 B
+  custom converter (Pancakes Schema)                       | SER     2.09 us | DES     1.85 us |     14 B
+  custom converter (VoidSentryUltimate Typed)              | SKIP: no equivalent typed codec
+  custom converter (Sera Typed)                            | SKIP: no equivalent typed codec
+  custom converter (Squash Typed)                          | SKIP: no equivalent typed codec
+  custom converter (Scrivener Typed)                       | SKIP: no equivalent typed codec
+  
+-- empty table --
+  empty table (Pancakes Auto)                              | SER     1.57 us | DES     1.27 us |      3 B
+  empty table (Pancakes Schema)                            | SKIP: no equivalent typed codec
+  empty table (VoidSentryUltimate Typed)                   | SKIP: no equivalent typed codec
+  empty table (Sera Typed)                                 | SKIP: no equivalent typed codec
+  empty table (Squash Typed)                               | SKIP: no equivalent typed codec
+  empty table (Scrivener Typed)                            | SKIP: no equivalent typed codec
+  
+-- single-element array --
+  single-element array (Pancakes Auto)                     | SER     1.83 us | DES     1.48 us |      6 B
+  single-element array (Pancakes Schema)                   | SER     0.51 us | DES     0.73 us |      6 B
+  single-element array (VoidSentryUltimate ArrayFixed<U8, 1>) | SER     0.22 us | DES     0.20 us |      1 B
+  single-element array (Sera Array<Uint8, 1>)              | SER     0.61 us | DES     0.40 us |      1 B
+  single-element array (Squash Array<u8, 1>)               | SER     0.39 us | DES     0.43 us |      1 B
+  single-element array (Scrivener Array<u8, 1>)            | SER     0.40 us | DES     0.48 us |      2 B
+  
+-- mixed generic array --
+  mixed generic array (Pancakes Auto)                      | SER     3.94 us | DES     3.33 us |     21 B
+  mixed generic array (Pancakes Schema)                    | SKIP: no equivalent typed codec
+  mixed generic array (VoidSentryUltimate Typed)           | SKIP: no equivalent typed codec
+  mixed generic array (Sera Typed)                         | SKIP: no equivalent typed codec
+  mixed generic array (Squash Typed)                       | SKIP: no equivalent typed codec
+  mixed generic array (Scrivener Typed)                    | SKIP: no equivalent typed codec
+  
+-- numeric array x32 --
+  numeric array x32 (Pancakes Auto)                        | SER     8.30 us | DES     8.83 us |    114 B
+  numeric array x32 (Pancakes Schema)                      | SER     1.39 us | DES     1.05 us |    133 B
+  numeric array x32 (VoidSentryUltimate ArrayFixed<F32, 32>) | SER     1.08 us | DES     1.32 us |    128 B
+  numeric array x32 (Sera Array<Float32, 32>)              | SER     1.31 us | DES     1.70 us |    128 B
+  numeric array x32 (Squash Array<f32, 32>)                | SER     2.89 us | DES     2.11 us |    128 B
+  numeric array x32 (Scrivener Array<f32, 32>)             | SER     1.71 us | DES     2.59 us |    129 B
+  
+-- RLE number array x32 --
+  RLE number array x32 (Pancakes Auto)                     | SER     1.08 us | DES     1.17 us |      6 B
+  RLE number array x32 (Pancakes Schema)                   | SER     0.92 us | DES     1.23 us |     37 B
+  RLE number array x32 (VoidSentryUltimate ArrayFixed<U8, 32>) | SER     1.23 us | DES     1.73 us |     32 B
+  RLE number array x32 (Sera Array<Uint8, 32>)             | SER     1.33 us | DES     1.47 us |     32 B
+  RLE number array x32 (Squash Array<u8, 32>)              | SER     2.65 us | DES     2.15 us |     32 B
+  RLE number array x32 (Scrivener Array<u8, 32>)           | SER     1.44 us | DES     2.04 us |     33 B
+  
+-- boolean array x32 --
+  boolean array x32 (Pancakes Auto)                        | SER     0.84 us | DES     1.24 us |      8 B
+  boolean array x32 (Pancakes Schema)                      | SER     1.14 us | DES     1.29 us |      9 B
+  boolean array x32 (VoidSentryUltimate ArrayFixed<Bool, 32>) | SER     0.94 us | DES     1.41 us |     32 B
+  boolean array x32 (Sera Array<Boolean, 32>)              | SER     1.23 us | DES     1.48 us |     32 B
+  boolean array x32 (Squash Array<boolean, 32>)            | SER     0.96 us | DES     0.59 us |      4 B
+  boolean array x32 (Scrivener Array<bool_simple, 32>)     | SER     1.29 us | DES     2.20 us |     33 B
+  
+-- string array x32 --
+  string array x32 (Pancakes Auto)                         | SER    11.83 us | DES    10.39 us |    315 B
+  string array x32 (Pancakes Schema)                       | SER     1.67 us | DES     1.21 us |    284 B
+  string array x32 (VoidSentryUltimate ArrayFixed<String, 32>) | SER     2.37 us | DES     2.95 us |    311 B
+  string array x32 (Sera Array<String16, 32>)              | SER     6.31 us | DES     3.27 us |    311 B
+  string array x32 (Squash Typed)                          | SKIP: no equivalent typed codec
+  string array x32 (Scrivener Array<string, 32>)           | SER     5.29 us | DES     4.57 us |    280 B
+  
+-- record array x16 --
+  record array x16 (Pancakes Auto)                         | SER     3.60 us | DES     5.76 us |    191 B
+  record array x16 (Pancakes Schema)                       | SER     2.82 us | DES     4.90 us |    172 B
+  record array x16 (VoidSentryUltimate ArrayFixed<Struct, 16>) | SER     3.35 us | DES    11.68 us |    183 B
+  record array x16 (Sera Array<Record, 16>)                | SER     4.97 us | DES     9.68 us |    183 B
+  record array x16 (Squash Typed)                          | SKIP: no equivalent typed codec
+  record array x16 (Scrivener Array<Record, 16>)           | SER     5.98 us | DES    11.12 us |    168 B
+  
+-- sequential numeric-key table --
+  sequential numeric-key table (Pancakes Auto)             | SER     3.17 us | DES     4.00 us |     18 B
+  sequential numeric-key table (Pancakes Schema)           | SKIP: no equivalent typed codec
+  sequential numeric-key table (VoidSentryUltimate Typed)  | SKIP: no equivalent typed codec
+  sequential numeric-key table (Sera Typed)                | SKIP: no equivalent typed codec
+  sequential numeric-key table (Squash Typed)              | SKIP: no equivalent typed codec
+  sequential numeric-key table (Scrivener Typed)           | SKIP: no equivalent typed codec
+  
+-- sparse numeric-key table --
+  sparse numeric-key table (Pancakes Auto)                 | SER     3.45 us | DES     4.32 us |     26 B
+  sparse numeric-key table (Pancakes Schema)               | SKIP: no equivalent typed codec
+  sparse numeric-key table (VoidSentryUltimate Typed)      | SKIP: no equivalent typed codec
+  sparse numeric-key table (Sera Typed)                    | SKIP: no equivalent typed codec
+  sparse numeric-key table (Squash Typed)                  | SKIP: no equivalent typed codec
+  sparse numeric-key table (Scrivener Typed)               | SKIP: no equivalent typed codec
+  
+-- dictionary 16 fields --
+  dictionary 16 fields (Pancakes Auto)                     | SER    11.58 us | DES    22.73 us |    171 B
+  dictionary 16 fields (Pancakes Schema)                   | SER     1.41 us | DES     1.41 us |    172 B
+  dictionary 16 fields (VoidSentryUltimate Struct<16x U8>) | SER     0.85 us | DES     1.68 us |     16 B
+  dictionary 16 fields (Sera Record<16x Uint8>)            | SER     1.08 us | DES     1.53 us |     16 B
+  dictionary 16 fields (Squash Record<16x u8>)             | SER     2.51 us | DES     2.42 us |     16 B
+  dictionary 16 fields (Scrivener Record<16x u8>)          | SER     1.72 us | DES     2.01 us |     16 B
+  
+-- nested table --
+  nested table (Pancakes Auto)                             | SER     6.68 us | DES     8.46 us |     71 B
+  nested table (Pancakes Schema)                           | SER     2.45 us | DES     1.51 us |     31 B
+  nested table (VoidSentryUltimate Struct<nested>)         | SER     0.67 us | DES     1.48 us |     27 B
+  nested table (Sera Record<nested>)                       | SER     1.64 us | DES     3.05 us |     27 B
+  nested table (Squash Typed)                              | SKIP: no equivalent typed codec
+  nested table (Scrivener Record<nested>)                  | SER     1.05 us | DES     2.06 us |     27 B

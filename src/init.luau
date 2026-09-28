@@ -12,13 +12,14 @@
                         	 Author: @DarkGamer
                       	  Roblox User: lol_GG1HACKE
 			            Pancakes binary serialization library.
-		   	 Last updated: 09/07/2026 | BUILD_ID "1.0.0-pancakes"
+			   	 Last updated: 09/17/2026 | BUILD_ID "1.1.2-custom-optimization"
        	                    License: MIT License
 
     A high-performance binary serialization library for Roblox that efficiently
     encodes Lua values and Roblox data types into compact byte buffers.
 ]]
 local Pancakes = {}
+Pancakes.Version = "1.1"
 
 local mathAbs        = math.abs
 local mathFloor      = math.floor
@@ -121,6 +122,22 @@ local SUBTYPE_TABLE_SHAPE         = 13
 local SUBTYPE_TYPED_TABLE_SHAPE   = 14
 local SUBTYPE_TYPED_RECORD_ARRAY  = 15
 
+local EXPANDED_SUBTYPE = table.freeze({
+	BUFFER          = 16,
+	AXES            = 17,
+	FACES           = 18,
+	RECT            = 19,
+	RAY             = 20,
+	NUMBER_KEYPOINT = 21,
+	COLOR_KEYPOINT  = 22,
+	FONT            = 23,
+	PHYSICAL        = 24,
+	REGION3         = 25,
+	REGION3INT16    = 26,
+	TWEEN_INFO      = 27,
+	PATH_WAYPOINT   = 28,
+})
+
 local ADAPT_ZERO     = 0
 local ADAPT_ONE      = 1
 local ADAPT_NIBBLE   = 2
@@ -132,8 +149,26 @@ local ADAPT_F32      = 7
 local ADAPT_F64      = 8
 
 export type SerializerConfig = SerializerSettings.SerializerConfig
-local Config: SerializerConfig = SerializerSettings :: SerializerConfig
+export type SerializerConfigOverrides = {
+	poolingEnabled: boolean?,
+	writerPoolMaxPerBucket: number?,
+	readerPoolMax: number?,
+	rleThreshold: number?,
+	sortedKeysCacheEnabled: boolean?,
+	commonKeys: {string}?,
+	patternKeysEnabled: boolean?,
+	sortedKeysCacheTrustMode: boolean?,
+	stringCacheMinLength: number?,
+	schemaValidationEnabled: boolean?,
+	strictBoundsChecking: boolean?,
+	maxDeclaredCountBytes: number?,
+	maxBufferBytes: number?,
+	maxSequenceKeypoints: number?,
+	maxInstancePathDepth: number?,
+	debugAsserts: boolean?,
+}
 
+local Config: SerializerConfig = SerializerSettings :: SerializerConfig
 local INSTANCE_PATH_SCRATCH: {string} = {}
 
 local F32_PROBE = bufferCreate(4)
@@ -151,27 +186,14 @@ local function rebuildCommonKeyMap(): ()
 end
 rebuildCommonKeyMap()
 
-function Pancakes.Configure(overrides: {
-	poolingEnabled: boolean?,
-	writerPoolMaxPerBucket: number?,
-	readerPoolMax: number?,
-	rleThreshold: number?,
-	sortedKeysCacheEnabled: boolean?,
-	commonKeys: {string}?,
-	patternKeysEnabled: boolean?,
-	sortedKeysCacheTrustMode: boolean?,
-	stringCacheMinLength: number?,
-	schemaValidationEnabled: boolean?,
-	strictBoundsChecking: boolean?,
-	maxDeclaredCountBytes: number?,
-	debugAsserts: boolean?,
-	}): ()
+function Pancakes.Configure(overrides: SerializerConfigOverrides): ()
+	local mutableConfig = Config :: any
 	if overrides.poolingEnabled ~= nil then
-		Config.poolingEnabled = overrides.poolingEnabled
+		Config.poolingEnabled = overrides.poolingEnabled 
 	end
 	if overrides.writerPoolMaxPerBucket ~= nil then
 		assert(overrides.writerPoolMaxPerBucket >= 0, "[Pancakes] writerPoolMaxPerBucket must be >= 0")
-		Config.writerPoolMaxPerBucket = overrides.writerPoolMaxPerBucket
+		Config.writerPoolMaxPerBucket = overrides.writerPoolMaxPerBucket 
 	end
 	if overrides.readerPoolMax ~= nil then
 		assert(overrides.readerPoolMax >= 0, "[Pancakes] readerPoolMax must be >= 0")
@@ -179,7 +201,7 @@ function Pancakes.Configure(overrides: {
 	end
 	if overrides.rleThreshold ~= nil then
 		assert(overrides.rleThreshold >= 0 and overrides.rleThreshold <= 1, "[Pancakes] rleThreshold must be between 0 and 1")
-		Config.rleThreshold = overrides.rleThreshold
+		Config.rleThreshold = overrides.rleThreshold 
 	end
 	if overrides.sortedKeysCacheEnabled ~= nil then
 		Config.sortedKeysCacheEnabled = overrides.sortedKeysCacheEnabled
@@ -209,6 +231,23 @@ function Pancakes.Configure(overrides: {
 		assert(overrides.maxDeclaredCountBytes >= 1, "[Pancakes] maxDeclaredCountBytes must be >= 1")
 		Config.maxDeclaredCountBytes = overrides.maxDeclaredCountBytes
 	end
+	if overrides.maxBufferBytes ~= nil then
+		assert(overrides.maxBufferBytes >= 0 and overrides.maxBufferBytes % 1 == 0,
+			"[Pancakes] maxBufferBytes must be a non-negative integer")
+		mutableConfig.maxBufferBytes = overrides.maxBufferBytes
+	end
+	if overrides.maxSequenceKeypoints ~= nil then
+		assert(overrides.maxSequenceKeypoints >= 2 and overrides.maxSequenceKeypoints <= 31
+			and overrides.maxSequenceKeypoints % 1 == 0,
+			"[Pancakes] maxSequenceKeypoints must be an integer from 2 through 31")
+		mutableConfig.maxSequenceKeypoints = overrides.maxSequenceKeypoints
+	end
+	if overrides.maxInstancePathDepth ~= nil then
+		assert(overrides.maxInstancePathDepth >= 1 and overrides.maxInstancePathDepth <= 270
+			and overrides.maxInstancePathDepth % 1 == 0,
+			"[Pancakes] maxInstancePathDepth must be an integer from 1 through 270")
+		mutableConfig.maxInstancePathDepth = overrides.maxInstancePathDepth
+	end
 	if overrides.debugAsserts ~= nil then
 		Config.debugAsserts = overrides.debugAsserts
 	end
@@ -228,6 +267,9 @@ function Pancakes.GetConfig(): SerializerConfig
 		schemaValidationEnabled  = Config.schemaValidationEnabled,
 		strictBoundsChecking     = Config.strictBoundsChecking,
 		maxDeclaredCountBytes    = Config.maxDeclaredCountBytes,
+		maxBufferBytes           = (Config :: any).maxBufferBytes or 16777216,
+		maxSequenceKeypoints     = (Config :: any).maxSequenceKeypoints or 31,
+		maxInstancePathDepth     = (Config :: any).maxInstancePathDepth or 270,
 		debugAsserts             = Config.debugAsserts,
 	}
 end
@@ -335,6 +377,16 @@ type AutoRuntimeState = {
 	readDenseDatatype: (reader: Reader, count: number, mode: number) -> {any},
 	serializeRecordArray: (writer: Writer, values: {any}, count: number) -> boolean,
 	deserializeRecordArray: (reader: Reader) -> {any},
+	trySerializePrimitive: (value: any) -> buffer?,
+	tryDeserializePrimitive: (data: buffer) -> (boolean, any),
+	trySerializeFixedDatatype: (value: any, valueType: string) -> buffer?,
+	tryDeserializeFixedDatatype: (data: buffer) -> (boolean, any),
+	trySerializeNumericBooleanArray: (value: any) -> buffer?,
+	tryDeserializeNumericBooleanArray: (data: buffer) -> (boolean, any),
+	writeExpandedValue: (writer: Writer, value: any, valueType: string) -> boolean,
+	readExpandedValue: (reader: Reader, subtype: number) -> any,
+	axesByMask: {[number]: Axes},
+	facesByMask: {[number]: Faces},
 }
 
 local AutoRuntime: AutoRuntimeState = {
@@ -357,6 +409,8 @@ local AutoRuntime: AutoRuntimeState = {
 	lastDecodedRecordPlan = nil,
 	decodeBitBudget = 0,
 	schemaCompactWire = false,
+	axesByMask = {},
+	facesByMask = {},
 } :: any
 
 function AutoRuntime.reset(): ()
@@ -436,10 +490,12 @@ local function classifyTable(tbl: {any}): (number, number, number?, string?, {an
 			if valueType ~= "boolean" then allBool = false end
 			if valueType ~= "number" then allNumber = false end
 		end
+
 		if dense and denseCount == n then
 			if allBool and n >= 8 then
 				return KIND_BOOL_ARRAY, n, nil, nil, nil
 			end
+
 			if allNumber and n >= 4 then
 				local repeats = 0
 				local allSmallDelta = true
@@ -451,6 +507,7 @@ local function classifyTable(tbl: {any}): (number, number, number?, string?, {an
 					if delta % 1 ~= 0 or delta < -7 or delta > 7 then allSmallDelta = false end
 					previous = value
 				end
+
 				return KIND_NUM_ARRAY, n, repeats, if allSmallDelta then "small" else nil, nil
 			end
 			return KIND_GENERIC_DENSE, n, nil, nil, nil
@@ -593,6 +650,7 @@ export type Writer = {
 	_WriteZigZag: (value: number) -> (),
 	_WriteAdaptiveNumber: (value: number) -> (),
 	_WriteStringRaw: (str: string) -> (),
+	_WriteBufferRaw: (value: buffer) -> (),
 	_WriteStringCached: (str: string) -> (),
 	_WriteU16Array: (values: {number}, count: number) -> (),
 	_WriteBooleanArray: (values: {boolean}, count: number) -> (),
@@ -803,6 +861,14 @@ local function newWriterInstance(size: number): Writer
 		offset += len
 	end
 
+	local function writeBufferRaw(value: buffer): ()
+		flushBits()
+		local len = bufferLen(value)
+		if offset + len > bufSize then ensureCapacity(len) end
+		bufferCopy(buf, offset, value, 0, len)
+		offset += len
+	end
+
 	local function writeAdaptiveNumber(value: number): ()
 		if Config.debugAsserts and type(value) ~= "number" then
 			warn(value, typeofFn(value), debug.traceback())
@@ -844,7 +910,6 @@ local function newWriterInstance(size: number): Writer
 	end
 
 	local writerInstance: Writer
-
 	local function writeStringCached(str: string): ()
 		local len = #str
 		local sc = stringCache
@@ -858,7 +923,6 @@ local function newWriterInstance(size: number): Writer
 		end
 
 		writeBits(0, 1)
-
 		if len == 0 then
 			writeBits(0, 8)
 		else
@@ -899,6 +963,7 @@ local function newWriterInstance(size: number): Writer
 			local fieldValue = value[keys[i]]
 			if fieldValue == nil then return false end
 			local kind = kinds[i]
+
 			if kind == RECORD_VALUE_STRING then
 				if type(fieldValue) ~= "string" then return false end
 				local len = #fieldValue
@@ -922,9 +987,11 @@ local function newWriterInstance(size: number): Writer
 				end
 				bufferWriteStr(buf, offset, fieldValue)
 				offset += len
+
 			elseif kind == RECORD_VALUE_BOOLEAN then
 				if type(fieldValue) ~= "boolean" then return false end
 				writeBits(fieldValue and 1 or 0, 1)
+
 			elseif kind == RECORD_VALUE_U16 then
 				if type(fieldValue) ~= "number" or fieldValue % 1 ~= 0
 					or fieldValue < 0 or fieldValue > 65535 then return false end
@@ -940,6 +1007,7 @@ local function newWriterInstance(size: number): Writer
 					bufferWriteU16(buf, offset + 1, fieldValue)
 					offset += 3
 				end
+
 			elseif kind == RECORD_VALUE_I16 then
 				if type(fieldValue) ~= "number" or fieldValue % 1 ~= 0
 					or fieldValue < -32768 or fieldValue > 32767 then return false end
@@ -949,6 +1017,7 @@ local function newWriterInstance(size: number): Writer
 				end
 				if offset + 2 > bufSize then ensureCapacity(2) end
 				bufferWriteI16(buf, offset, fieldValue); offset += 2
+
 			elseif kind == RECORD_VALUE_U32 then
 				if type(fieldValue) ~= "number" or fieldValue % 1 ~= 0
 					or fieldValue < 0 or fieldValue > 4294967295 then return false end
@@ -958,10 +1027,12 @@ local function newWriterInstance(size: number): Writer
 				end
 				if offset + 4 > bufSize then ensureCapacity(4) end
 				bufferWriteU32(buf, offset, fieldValue); offset += 4
+
 			elseif kind == RECORD_VALUE_I32 then
 				if type(fieldValue) ~= "number" or fieldValue % 1 ~= 0
 					or fieldValue < -2147483648 or fieldValue > 2147483647 then return false end
 				writeZigZag(fieldValue)
+
 			elseif kind == RECORD_VALUE_F32 then
 				if type(fieldValue) ~= "number" or not isExactF32(fieldValue) then return false end
 				if bitCount ~= 0 then
@@ -970,6 +1041,7 @@ local function newWriterInstance(size: number): Writer
 				end
 				if offset + 4 > bufSize then ensureCapacity(4) end
 				bufferWriteF32(buf, offset, fieldValue); offset += 4
+
 			elseif kind == RECORD_VALUE_F64 then
 				if type(fieldValue) ~= "number" then return false end
 				if bitCount ~= 0 then
@@ -978,6 +1050,7 @@ local function newWriterInstance(size: number): Writer
 				end
 				if offset + 8 > bufSize then ensureCapacity(8) end
 				bufferWriteF64(buf, offset, fieldValue); offset += 8
+
 			elseif kind == RECORD_VALUE_NESTED then
 				if not writeStaticRecordChecked(fieldValue, plan.children[i], validateKeys) then return false end
 			else
@@ -987,13 +1060,12 @@ local function newWriterInstance(size: number): Writer
 		return true
 	end
 
-	local function writeStaticAutoLayout2ArrayChecked(
-		values: {any}, count: number, plan: AutoRecordPlan, builtNow: boolean, trustCache: boolean
-	): boolean
+	local function writeStaticAutoLayout2ArrayChecked(values: {any}, count: number, plan: AutoRecordPlan, builtNow: boolean, trustCache: boolean): boolean
 		local captureOffsets = AutoRuntime.captureLayoutOffsets
 		local patchOffsets = AutoRuntime.lastLayoutOffsets
 		if captureOffsets then tableClear(patchOffsets); AutoRuntime.lastLayoutCount = count end
 		AutoRuntime.lastLayoutValid = false
+
 		local keys = plan.keys
 		local flagsKeys = plan.children[3].keys
 		local statsKeys = plan.children[9].keys
@@ -1004,23 +1076,28 @@ local function newWriterInstance(size: number): Writer
 		local cachePlans = Config.sortedKeysCacheEnabled
 		local planCache = AutoRuntime.recordPlanCache
 		flushBits()
+
 		for i = 1, count do
 			local row = values[i]
 			if type(row) ~= "table" then return false end
 			if hasRegisteredConverter(row) then return false end
+
 			local flags = row[k3]
 			if type(flags) ~= "table" then return false end
 			if hasRegisteredConverter(flags) then return false end
+
 			local b1, b2, b3 = row[k1], row[k2], row[k5]
 			local fv1, fv2, fv3 = flags[f1], flags[f2], flags[f3]
 			if type(b1) ~= "boolean" or type(b2) ~= "boolean" or type(b3) ~= "boolean"
 				or type(fv1) ~= "boolean" or type(fv2) ~= "boolean" or type(fv3) ~= "boolean" then return false end
+
 			local patchBase = (i - 1) * 12
 			if captureOffsets then patchOffsets[patchBase + 1], patchOffsets[patchBase + 2] = offset, bitCount end
 			writeBits((if b1 then 1 else 0) + (if b2 then 2 else 0)
 				+ (if fv1 then 4 else 0) + (if fv2 then 8 else 0) + (if fv3 then 16 else 0)
 				+ (if b3 then 32 else 0), 6)
 		end
+
 		flushBits()
 		for i = 1, count do
 			local row = values[i]
@@ -1040,6 +1117,7 @@ local function newWriterInstance(size: number): Writer
 				or type(id) ~= "number" or id ~= bit32band(id, 65535)
 				or type(orderIndex) ~= "number" or orderIndex ~= bit32band(orderIndex, 65535)
 				or type(name) ~= "string" or type(rarity) ~= "string" then return false end
+
 			if hasRegisteredConverter(stats) then return false end
 			if validateKeys then
 				local flagsCount, statsCount = 0, 0
@@ -1047,6 +1125,7 @@ local function newWriterInstance(size: number): Writer
 				for _ in stats do statsCount += 1; if statsCount > 3 then return false end end
 				if flagsCount ~= 3 or statsCount ~= 3 then return false end
 			end
+
 			local fv1, fv2, fv3 = flags[f1], flags[f2], flags[f3]
 			local sv1, sv2, sv3 = stats[s1], stats[s2], stats[s3]
 			if type(fv1) ~= "boolean" or type(fv2) ~= "boolean" or type(fv3) ~= "boolean"
@@ -1063,28 +1142,36 @@ local function newWriterInstance(size: number): Writer
 			local needed = idWidth + orderWidth + stat1Width + stat2Width + stat3Width
 				+ (if nameLen < 255 then 1 else 5) + nameLen
 				+ (if rarityLen < 255 then 1 else 5) + rarityLen
+
 			if offset + needed > bufSize then ensureCapacity(needed) end
 			local patchBase = (i - 1) * 12
+
 			if captureOffsets then patchOffsets[patchBase + 3] = offset end
 			if id < 255 then bufferWriteU8(buf, offset, id); offset += 1
 			else bufferWriteU8(buf, offset, 255); bufferWriteU16(buf, offset + 1, id); offset += 3 end
+
 			if nameLen < 255 then bufferWriteU8(buf, offset, nameLen); offset += 1
 			else bufferWriteU8(buf, offset, 255); bufferWriteU32(buf, offset + 1, nameLen); offset += 5 end
 			if captureOffsets then patchOffsets[patchBase + 5], patchOffsets[patchBase + 6] = offset, nameLen end
+
 			bufferWriteStr(buf, offset, name); offset += nameLen
 			if captureOffsets then patchOffsets[patchBase + 7] = offset end
 			if orderIndex < 255 then bufferWriteU8(buf, offset, orderIndex); offset += 1
 			else bufferWriteU8(buf, offset, 255); bufferWriteU16(buf, offset + 1, orderIndex); offset += 3 end
+
 			if rarityLen < 255 then bufferWriteU8(buf, offset, rarityLen); offset += 1
 			else bufferWriteU8(buf, offset, 255); bufferWriteU32(buf, offset + 1, rarityLen); offset += 5 end
 			if captureOffsets then patchOffsets[patchBase + 8], patchOffsets[patchBase + 9] = offset, rarityLen end
+
 			bufferWriteStr(buf, offset, rarity); offset += rarityLen
 			if captureOffsets then patchOffsets[patchBase + 10] = offset end
 			if sv1 < 255 then bufferWriteU8(buf, offset, sv1); offset += 1
 			else bufferWriteU8(buf, offset, 255); bufferWriteU16(buf, offset + 1, sv1); offset += 3 end
+
 			if captureOffsets then patchOffsets[patchBase + 11] = offset end
 			if sv2 < 255 then bufferWriteU8(buf, offset, sv2); offset += 1
 			else bufferWriteU8(buf, offset, 255); bufferWriteU16(buf, offset + 1, sv2); offset += 3 end
+
 			if captureOffsets then patchOffsets[patchBase + 12] = offset end
 			if sv3 < 255 then bufferWriteU8(buf, offset, sv3); offset += 1
 			else bufferWriteU8(buf, offset, 255); bufferWriteU16(buf, offset + 1, sv3); offset += 3 end
@@ -1094,13 +1181,7 @@ local function newWriterInstance(size: number): Writer
 		return true
 	end
 
-	local function writeStaticRecordArrayChecked(
-		values: {any},
-		count: number,
-		plan: AutoRecordPlan,
-		builtNow: boolean,
-		trustCache: boolean
-	): boolean
+	local function writeStaticRecordArrayChecked(values: {any}, count: number, plan: AutoRecordPlan, builtNow: boolean, trustCache: boolean): boolean
 		local cachePlans = Config.sortedKeysCacheEnabled
 		local planCache = AutoRuntime.recordPlanCache
 		if plan.layout == 1 then
@@ -1154,6 +1235,7 @@ local function newWriterInstance(size: number): Writer
 					end
 					if actualCount ~= 3 then return false end
 				end
+
 				local n1, n2, n3 = nested[c1], nested[c2], nested[c3]
 				if type(n1) ~= "number" or n1 ~= bit32band(n1, 65535)
 					or type(n2) ~= "number" or n2 ~= bit32band(n2, 65535)
@@ -1260,6 +1342,7 @@ local function newWriterInstance(size: number): Writer
 			elseif validate and value == nil then
 				error(`[Pancakes] Required field "{key}" is nil. Provide a value or wrap it with Field.Optional.`, 2)
 			end
+
 			local kind = kinds[i]
 			if kind == 1 then writeU8(value)
 			elseif kind == 2 then writeI8(value)
@@ -1305,6 +1388,7 @@ local function newWriterInstance(size: number): Writer
 					if hv3 == nil then error(`[Pancakes] Required field "{h3}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 					error(`[Pancakes] Required field "{k5}" is nil. Provide a value or wrap it with Field.Optional.`, 2)
 				end
+
 				local fv1, fv2, fv3 = flags[f1], flags[f2], flags[f3]
 				if validate and (fv1 == nil or fv2 == nil or fv3 == nil) then
 					if fv1 == nil then error(`[Pancakes] Required field "{f1}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
@@ -1326,12 +1410,14 @@ local function newWriterInstance(size: number): Writer
 					if stats == nil then error(`[Pancakes] Required field "{k4}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 					error(`[Pancakes] Required field "{k6}" is nil. Provide a value or wrap it with Field.Optional.`, 2)
 				end
+
 				local sv1, sv2, sv3 = stats[s1], stats[s2], stats[s3]
 				if validate and (sv1 == nil or sv2 == nil or sv3 == nil) then
 					if sv1 == nil then error(`[Pancakes] Required field "{s1}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 					if sv2 == nil then error(`[Pancakes] Required field "{s2}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 					error(`[Pancakes] Required field "{s3}" is nil. Provide a value or wrap it with Field.Optional.`, 2)
 				end
+
 				local len2, len3 = #v2, #v3
 				local needed = 1 + (if v1 < 255 then 1 else 3)
 					+ (if sv1 < 255 then 1 else 3) + (if sv2 < 255 then 1 else 3)
@@ -1371,6 +1457,7 @@ local function newWriterInstance(size: number): Writer
 				if flags == nil then error(`[Pancakes] Required field "{k5}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 				if v6 == nil then error(`[Pancakes] Required field "{k6}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 			end
+
 			local sv1, sv2, sv3 = stats[s1], stats[s2], stats[s3]
 			local fv1, fv2, fv3 = flags[f1], flags[f2], flags[f3]
 			if validate then
@@ -1446,6 +1533,7 @@ local function newWriterInstance(size: number): Writer
 					if validate and value == nil then
 						error(`[Pancakes] Required field "{key}" is nil. Provide a value or wrap it with Field.Optional.`, 2)
 					end
+
 					local kind = kinds[fieldIndex]
 					if kind == 1 then writeU8(value)
 					elseif kind == 2 then writeI8(value)
@@ -1486,6 +1574,7 @@ local function newWriterInstance(size: number): Writer
 					if v3 == nil then error(`[Pancakes] Required field "{k3}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 					if nested == nil then error(`[Pancakes] Required field "{k4}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 				end
+
 				local n1, n2, n3 = nested[c1], nested[c2], nested[c3]
 				if validate and (n1 == nil or n2 == nil or n3 == nil) then
 					if n1 == nil then error(`[Pancakes] Required field "{c1}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
@@ -1603,6 +1692,7 @@ local function newWriterInstance(size: number): Writer
 			bufferWriteU8(buf, offset, packed)
 			offset += 1
 		end
+
 		local remaining = count - fullBytes * 8
 		if remaining ~= 0 then
 			local packed = 0
@@ -1615,10 +1705,7 @@ local function newWriterInstance(size: number): Writer
 		end
 	end
 
-	local function writeStaticSchemaRootLayout1(
-		data: {[string]: any},
-		plan: StaticSchemaRootPlan,
-		validate: boolean): ()
+	local function writeStaticSchemaRootLayout1(data: {[string]: any}, plan: StaticSchemaRootPlan, validate: boolean): ()
 		local arrayKey, u16Key, u32Key = plan.arrayKey, plan.tailU16Key, plan.tailU32Key
 		local values, tailU16, tailU32 = data[arrayKey], data[u16Key], data[u32Key]
 		if validate then
@@ -1626,6 +1713,7 @@ local function newWriterInstance(size: number): Writer
 			if tailU16 == nil then error(`[Pancakes] Required field "{u16Key}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 			if tailU32 == nil then error(`[Pancakes] Required field "{u32Key}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 		end
+
 		local count = #values
 		if AutoRuntime.schemaCompactWire then
 			if count < 255 then writeU8(count) else writeU8(255); writeU32(count) end
@@ -1690,6 +1778,7 @@ local function newWriterInstance(size: number): Writer
 		_WriteZigZag         = writeZigZag,
 		_WriteAdaptiveNumber = writeAdaptiveNumber,
 		_WriteStringRaw      = writeStringRaw,
+		_WriteBufferRaw      = writeBufferRaw,
 		_WriteStringCached   = writeStringCached,
 		_WriteU16Array       = writeU16Array,
 		_WriteBooleanArray   = writeBooleanArray,
@@ -1712,10 +1801,12 @@ releaseWriterInstance = function(w: Writer, size: number): ()
 	if not Config.poolingEnabled then
 		return
 	end
+
 	local bucket = writerSizeBucket(size)
 	if bucket > largestWriterPoolBucket then
 		largestWriterPoolBucket = bucket
 	end
+
 	local pool   = writerPool[bucket]
 	if not pool then
 		pool = {}
@@ -1780,6 +1871,7 @@ export type Reader = {
 	_ReadZigZag: () -> number,
 	_ReadAdaptiveNumber: () -> number,
 	_ReadStringRaw: (len: number) -> string,
+	_ReadBufferRaw: (len: number) -> buffer,
 	_ReadStringCached: () -> string,
 	_ReadU16Array: (count: number) -> {number},
 	_ReadBooleanArray: (count: number) -> {boolean},
@@ -1817,6 +1909,7 @@ local function newReaderInstance(buf: buffer): Reader
 			offset   += 1
 			bitCount += 8
 		end
+
 		local value = bit32band(bitBuffer, BIT_MASK[bits])
 		bitBuffer = bit32rshift(bitBuffer, bits)
 		bitCount -= bits
@@ -1870,7 +1963,7 @@ local function newReaderInstance(buf: buffer): Reader
 		if encoded % 2 == 0 then
 			return encoded / 2
 		else
-			return -(encoded + 1) / 2
+			return - (encoded + 1) / 2
 		end
 	end
 
@@ -1940,6 +2033,18 @@ local function newReaderInstance(buf: buffer): Reader
 		return str
 	end
 
+	local function readBufferRaw(len: number): buffer
+		if bitCount ~= 0 then bitBuffer, bitCount = 0, 0 end
+		if Config.strictBoundsChecking and len > size - offset then
+			error(`[Pancakes] Declared buffer length {len} exceeds the {size - offset} unread bytes`, 2)
+		end
+
+		local value = bufferCreate(len)
+		bufferCopy(value, 0, buf, offset, len)
+		offset += len
+		return value
+	end
+
 	local function readStringCached(): string
 		local isCached = readBits(1)
 		if isCached == 1 then
@@ -1996,6 +2101,7 @@ local function newReaderInstance(buf: buffer): Reader
 				index += 1
 			end
 		end
+
 		local remaining = count - fullBytes * 8
 		if remaining ~= 0 then
 			local packed = bufferReadU8(buf, offset)
@@ -2414,6 +2520,7 @@ local function newReaderInstance(buf: buffer): Reader
 		elseif plan.layout == 2 then
 			return readStaticSchemaLayout2Array(count, plan)
 		end
+
 		local result = tableCreate(count)
 		for i = 1, count do
 			result[i] = readStaticSchemaRecord(plan)
@@ -2428,6 +2535,7 @@ local function newReaderInstance(buf: buffer): Reader
 		if Config.strictBoundsChecking and count > AutoRuntime.decodeBitBudget then
 			error(`[Pancakes] "{plan.arrayKey}": declared array length {count} exceeds the decode safety budget ({AutoRuntime.decodeBitBudget} bits)`, 2)
 		end
+
 		local values = readStaticSchemaLayout1Array(count, plan.elementPlan)
 		local tailU16 = readU16()
 		local tailU32 = readU32()
@@ -2487,6 +2595,7 @@ local function newReaderInstance(buf: buffer): Reader
 		_ReadZigZag         = readZigZag,
 		_ReadAdaptiveNumber = readAdaptiveNumber,
 		_ReadStringRaw      = readStringRaw,
+		_ReadBufferRaw      = readBufferRaw,
 		_ReadStringCached   = readStringCached,
 		_ReadU16Array       = readU16Array,
 		_ReadBooleanArray   = readBooleanArray,
@@ -2526,6 +2635,7 @@ local Reader = ReaderModule
 
 local SerializeValue: (writer: Writer, value: any) -> ()
 local DeserializeValue: (reader: Reader) -> any
+local getEnumValueLookup: (enumTypeName: string) -> {[number]: EnumItem}?
 
 local function writeCountHeader(writer: Writer, count: number): ()
 	if count <= 255 then
@@ -2549,6 +2659,221 @@ local function readCountHeader(reader: Reader): number
 	else
 		return reader._ReadU32()
 	end
+end
+
+function AutoRuntime.writeExpandedValue(writer: Writer, value: any, valueType: string): boolean
+	local subtype = EXPANDED_SUBTYPE
+	if valueType == "buffer" then
+		local len = bufferLen(value)
+		local maxBytes = (Config :: any).maxBufferBytes or 16777216
+		if len > maxBytes then
+			error(`[Pancakes] Buffer length {len} exceeds maxBufferBytes ({maxBytes})`, 2)
+		end
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.BUFFER, 5)
+		writeCountHeader(writer, len)
+		writer._WriteBufferRaw(value)
+		return true
+	elseif valueType == "Axes" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.AXES, 5)
+		writer._WriteBits((if value.X then 1 else 0) + (if value.Y then 2 else 0)
+			+ (if value.Z then 4 else 0), 3)
+		return true
+	elseif valueType == "Faces" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.FACES, 5)
+		writer._WriteBits((if value.Right then 1 else 0) + (if value.Top then 2 else 0)
+			+ (if value.Back then 4 else 0) + (if value.Left then 8 else 0)
+			+ (if value.Bottom then 16 else 0) + (if value.Front then 32 else 0), 6)
+		return true
+	elseif valueType == "Rect" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.RECT, 5)
+		writer._WriteF32(value.Min.X); writer._WriteF32(value.Min.Y)
+		writer._WriteF32(value.Max.X); writer._WriteF32(value.Max.Y)
+		return true
+	elseif valueType == "Ray" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.RAY, 5)
+		local origin, direction = value.Origin, value.Direction
+		writer._WriteF32(origin.X); writer._WriteF32(origin.Y); writer._WriteF32(origin.Z)
+		writer._WriteF32(direction.X); writer._WriteF32(direction.Y); writer._WriteF32(direction.Z)
+		return true
+	elseif valueType == "NumberSequenceKeypoint" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.NUMBER_KEYPOINT, 5)
+		writer._WriteF32(value.Time)
+		writer._WriteF32(value.Value)
+		writer._WriteF32(value.Envelope)
+		return true
+	elseif valueType == "ColorSequenceKeypoint" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.COLOR_KEYPOINT, 5)
+		local color = value.Value
+		writer._WriteF32(value.Time)
+		writer._WriteU8(mathClamp(mathRound(color.R * 255), 0, 255))
+		writer._WriteU8(mathClamp(mathRound(color.G * 255), 0, 255))
+		writer._WriteU8(mathClamp(mathRound(color.B * 255), 0, 255))
+		return true
+	elseif valueType == "Font" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.FONT, 5)
+		writer._WriteStringCached(value.Family)
+		writer._WriteStringCached(value.Weight.Name)
+		writer._WriteStringCached(value.Style.Name)
+		return true
+	elseif valueType == "PhysicalProperties" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.PHYSICAL, 5)
+		writer._WriteF32(value.Density)
+		writer._WriteF32(value.Friction)
+		writer._WriteF32(value.Elasticity)
+		writer._WriteF32(value.FrictionWeight)
+		writer._WriteF32(value.ElasticityWeight)
+		return true
+	elseif valueType == "Region3" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.REGION3, 5)
+		local center, size = value.CFrame.Position, value.Size
+		writer._WriteF32(center.X); writer._WriteF32(center.Y); writer._WriteF32(center.Z)
+		writer._WriteF32(size.X); writer._WriteF32(size.Y); writer._WriteF32(size.Z)
+		return true
+	elseif valueType == "Region3int16" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.REGION3INT16, 5)
+		local minimum, maximum = value.Min, value.Max
+		writer._WriteI16(minimum.X); writer._WriteI16(minimum.Y); writer._WriteI16(minimum.Z)
+		writer._WriteI16(maximum.X); writer._WriteI16(maximum.Y); writer._WriteI16(maximum.Z)
+		return true
+	elseif valueType == "TweenInfo" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.TWEEN_INFO, 5)
+		writer._WriteF32(value.Time)
+		writer._WriteU8(value.EasingStyle.Value)
+		writer._WriteU8(value.EasingDirection.Value)
+		writer._WriteZigZag(value.RepeatCount)
+		writer._WriteBits(value.Reverses and 1 or 0, 1)
+		writer._WriteF32(value.DelayTime)
+		return true
+	elseif valueType == "PathWaypoint" then
+		writer._WriteBits(TYPE_SPECIAL, 5)
+		writer._WriteBits(subtype.PATH_WAYPOINT, 5)
+		local position = value.Position
+		writer._WriteF32(position.X); writer._WriteF32(position.Y); writer._WriteF32(position.Z)
+		writer._WriteU8(value.Action.Value)
+		writer._WriteStringCached(value.Label)
+		return true
+	end
+	return false
+end
+
+function AutoRuntime.readExpandedValue(reader: Reader, subtype: number): any
+	local expanded = EXPANDED_SUBTYPE
+	if subtype == expanded.BUFFER then
+		local len = readCountHeader(reader)
+		local maxBytes = (Config :: any).maxBufferBytes or 16777216
+		if Config.strictBoundsChecking and len > maxBytes then
+			error(`[Pancakes] Declared buffer length {len} exceeds maxBufferBytes ({maxBytes})`, 2)
+		end
+		return reader._ReadBufferRaw(len)
+	elseif subtype == expanded.AXES then
+		local mask = reader._ReadBits(3)
+		local cached = AutoRuntime.axesByMask[mask]
+		if cached ~= nil then return cached end
+		local values = tableCreate(3)
+		local count = 0
+		if bit32band(mask, 1) ~= 0 then count += 1; values[count] = Enum.Axis.X end
+		if bit32band(mask, 2) ~= 0 then count += 1; values[count] = Enum.Axis.Y end
+		if bit32band(mask, 4) ~= 0 then count += 1; values[count] = Enum.Axis.Z end
+		local result = Axes.new(table.unpack(values, 1, count))
+		AutoRuntime.axesByMask[mask] = result
+		return result
+	elseif subtype == expanded.FACES then
+		local mask = reader._ReadBits(6)
+		local cached = AutoRuntime.facesByMask[mask]
+		if cached ~= nil then return cached end
+		local values = tableCreate(6)
+		local count = 0
+		if bit32band(mask, 1) ~= 0 then count += 1; values[count] = Enum.NormalId.Right end
+		if bit32band(mask, 2) ~= 0 then count += 1; values[count] = Enum.NormalId.Top end
+		if bit32band(mask, 4) ~= 0 then count += 1; values[count] = Enum.NormalId.Back end
+		if bit32band(mask, 8) ~= 0 then count += 1; values[count] = Enum.NormalId.Left end
+		if bit32band(mask, 16) ~= 0 then count += 1; values[count] = Enum.NormalId.Bottom end
+		if bit32band(mask, 32) ~= 0 then count += 1; values[count] = Enum.NormalId.Front end
+		local result = Faces.new(table.unpack(values, 1, count))
+		AutoRuntime.facesByMask[mask] = result
+		return result
+	elseif subtype == expanded.RECT then
+		return Rect.new(
+			Vector2.new(reader._ReadF32(), reader._ReadF32()),
+			Vector2.new(reader._ReadF32(), reader._ReadF32())
+		)
+	elseif subtype == expanded.RAY then
+		return Ray.new(
+			Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32()),
+			Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+		)
+	elseif subtype == expanded.NUMBER_KEYPOINT then
+		return NumberSequenceKeypoint.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+	elseif subtype == expanded.COLOR_KEYPOINT then
+		return ColorSequenceKeypoint.new(
+			reader._ReadF32(),
+			Color3.fromRGB(reader._ReadU8(), reader._ReadU8(), reader._ReadU8())
+		)
+	elseif subtype == expanded.FONT then
+		local family = reader._ReadStringCached()
+		local weight = (Enum.FontWeight :: any)[reader._ReadStringCached()]
+		local style = (Enum.FontStyle :: any)[reader._ReadStringCached()]
+		if Config.strictBoundsChecking and (weight == nil or style == nil) then
+			error("[Pancakes] Invalid Font enum value", 2)
+		end
+		return Font.new(family, weight or Enum.FontWeight.Regular, style or Enum.FontStyle.Normal)
+	elseif subtype == expanded.PHYSICAL then
+		return PhysicalProperties.new(
+			reader._ReadF32(), reader._ReadF32(), reader._ReadF32(),
+			reader._ReadF32(), reader._ReadF32()
+		)
+	elseif subtype == expanded.REGION3 then
+		local center = Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+		local size = Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+		local half = size * 0.5
+		return Region3.new(center - half, center + half)
+	elseif subtype == expanded.REGION3INT16 then
+		return Region3int16.new(
+			Vector3int16.new(reader._ReadI16(), reader._ReadI16(), reader._ReadI16()),
+			Vector3int16.new(reader._ReadI16(), reader._ReadI16(), reader._ReadI16())
+		)
+	elseif subtype == expanded.TWEEN_INFO then
+		local time = reader._ReadF32()
+		local styleValue = reader._ReadU8()
+		local directionValue = reader._ReadU8()
+		local styleLookup = getEnumValueLookup("EasingStyle")
+		local directionLookup = getEnumValueLookup("EasingDirection")
+		local style = styleLookup and styleLookup[styleValue]
+		local direction = directionLookup and directionLookup[directionValue]
+		if Config.strictBoundsChecking and (style == nil or direction == nil) then
+			error("[Pancakes] Invalid TweenInfo enum value", 2)
+		end
+		return TweenInfo.new(
+			time,
+			style or Enum.EasingStyle.Linear,
+			direction or Enum.EasingDirection.Out,
+			reader._ReadZigZag(),
+			reader._ReadBits(1) == 1,
+			reader._ReadF32()
+		)
+	elseif subtype == expanded.PATH_WAYPOINT then
+		local position = Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+		local actionValue = reader._ReadU8()
+		local lookup = getEnumValueLookup("PathWaypointAction")
+		local action = lookup and lookup[actionValue]
+		if Config.strictBoundsChecking and action == nil then
+			error("[Pancakes] Invalid PathWaypoint action", 2)
+		end
+		return PathWaypoint.new(position, action or Enum.PathWaypointAction.Walk, reader._ReadStringCached())
+	end
+	error(`[Pancakes] Unknown expanded datatype subtype: {subtype}`, 2)
 end
 
 function AutoRuntime.beginDecode(buf: buffer): ()
@@ -2633,6 +2958,7 @@ function AutoRuntime.registerShape(keys: {any}, count: number, values: {[any]: a
 		bucket = {}
 		AutoRuntime.shapeBuckets[count] = bucket
 	end
+
 	local bucketIndex = (AutoRuntime.shapeBucketCounts[count] or 0) + 1
 	AutoRuntime.shapeBucketCounts[count] = bucketIndex
 	local entry = bucket[bucketIndex]
@@ -2640,6 +2966,7 @@ function AutoRuntime.registerShape(keys: {any}, count: number, values: {[any]: a
 		entry = {id = 0, keys = tableCreate(count), kinds = tableCreate(count, 0)}
 		bucket[bucketIndex] = entry
 	end
+
 	local owned = entry.keys
 	local kinds = entry.kinds
 	for i = 1, count do
@@ -2670,6 +2997,7 @@ local function getSortedKeys(tbl: {[any]: any}, keys: {any}, count: number): {an
 			if Config.sortedKeysCacheTrustMode then
 				return sortedKeys
 			end
+
 			local stillValid = true
 			for i = 1, count do
 				if tbl[sortedKeys[i]] == nil then
@@ -2728,11 +3056,7 @@ type ConverterEntry = {
 
 local converterById: {[number]: ConverterEntry} = {}
 
-function Pancakes.RegisterConverter(
-	classMetatable: {any},
-	writeFn: ConverterWriteFn,
-	readFn: ConverterReadFn
-): ()
+function Pancakes.RegisterConverter(classMetatable: {any}, writeFn: ConverterWriteFn, readFn: ConverterReadFn): ()
 	if converterByMetatable[classMetatable] ~= nil then
 		error("[Pancakes] A converter for this class/metatable is already registered.")
 	end
@@ -2740,6 +3064,7 @@ function Pancakes.RegisterConverter(
 	if converterCount > 65535 then
 		error("[Pancakes] RegisterConverter: exceeded 65535 registered custom types")
 	end
+
 	local entry: ConverterEntry = {
 		metatable = classMetatable,
 		id        = converterCount,
@@ -2850,8 +3175,13 @@ SerializeValue = function(writer: Writer, value: any): ()
 					local val = value[i]
 					local run = 1
 					while i + run <= ac and value[i + run] == val do run += 1 end
-					writer._WriteU8(mathMin(run, 255))
-					SerializeValue(writer, val)
+					local remaining = run
+					while remaining > 0 do
+						local chunk = mathMin(remaining, 255)
+						writer._WriteU8(chunk)
+						SerializeValue(writer, val)
+						remaining -= chunk
+					end
 					i += run
 				end
 			else
@@ -2997,6 +3327,7 @@ SerializeValue = function(writer: Writer, value: any): ()
 			writer._WriteI16(x); writer._WriteI16(y); writer._WriteI16(z)
 			return
 		end
+
 		local xi, yi, zi = mathFloor(x), mathFloor(y), mathFloor(z)
 		local xf, yf, zf = x - xi, y - yi, z - zi
 		if xi >= -32768 and xi <= 32767
@@ -3005,10 +3336,10 @@ SerializeValue = function(writer: Writer, value: any): ()
 			local xq = mathRound(xf * 255)
 			local yq = mathRound(yf * 255)
 			local zq = mathRound(zf * 255)
-			local xe = xf - xq/255
-			local ye = yf - yq/255
-			local ze = zf - zq/255
-			if xe*xe + ye*ye + ze*ze < 0.00000081 then
+			local xe = xf - xq / 255
+			local ye = yf - yq / 255
+			local ze = zf - zq / 255
+			if xe * xe + ye * ye + ze * ze < 0.00000081 then
 				writer._WriteBits(TYPE_SPECIAL, 5)
 				writer._WriteBits(SUBTYPE_VECTOR3_QUANTIZED, 5)
 				writer._WriteI16(xi); writer._WriteU8(xq)
@@ -3041,7 +3372,7 @@ SerializeValue = function(writer: Writer, value: any): ()
 		local horizLenSq = lx * lx + lz * lz
 		if horizLenSq > 1e-8 then
 			local invLen = 1 / mathSqrt(horizLenSq)
-			local erx, erz = lz * invLen, -lx * invLen
+			local erx, erz = -lz * invLen, lx * invLen
 
 			local right = value.RightVector
 			local dx, dz = right.X - erx, right.Z - erz
@@ -3058,7 +3389,7 @@ SerializeValue = function(writer: Writer, value: any): ()
 		else
 			writer._WriteBits(TYPE_CFRAME, 5)
 			writer._WriteF32(px); writer._WriteF32(py); writer._WriteF32(pz)
-			local _, _, _, r00,r01,r02, r10,r11,r12, r20,r21,r22 = value:GetComponents()
+			local _, _, _, r00, r01, r02, r10, r11, r12, r20, r21, r22 = value:GetComponents()
 			writer._WriteF32(r00); writer._WriteF32(r01); writer._WriteF32(r02)
 			writer._WriteF32(r10); writer._WriteF32(r11); writer._WriteF32(r12)
 			writer._WriteF32(r20); writer._WriteF32(r21); writer._WriteF32(r22)
@@ -3084,11 +3415,20 @@ SerializeValue = function(writer: Writer, value: any): ()
 	elseif valueType == "Instance" then
 		writer._WriteBits(TYPE_INSTANCE, 5)
 		local depth = 0
+		local maxDepth = (Config :: any).maxInstancePathDepth or 270
 		local current = value
 		while current and current ~= game do
 			depth += 1
+			if depth > maxDepth then
+				tableClear(INSTANCE_PATH_SCRATCH)
+				error(`[Pancakes] Instance path exceeds maxInstancePathDepth ({maxDepth})`, 2)
+			end
 			INSTANCE_PATH_SCRATCH[depth] = current.Name
 			current = current.Parent
+		end
+		if current ~= game then
+			tableClear(INSTANCE_PATH_SCRATCH)
+			error("[Pancakes] Instance must be a descendant of game", 2)
 		end
 		writer._WriteBits(mathMin(depth, 15), 4)
 		if depth >= 15 then writer._WriteU8(depth - 15) end
@@ -3114,6 +3454,10 @@ SerializeValue = function(writer: Writer, value: any): ()
 		writer._WriteBits(TYPE_SPECIAL, 5)
 		writer._WriteBits(SUBTYPE_NUMBER_SEQUENCE, 5)
 		local kps = value.Keypoints
+		local keypointLimit = (Config :: any).maxSequenceKeypoints or 31
+		if #kps > keypointLimit then
+			error(`[Pancakes] NumberSequence has {#kps} keypoints; configured maximum is {keypointLimit}`, 2)
+		end
 		writer._WriteBits(#kps, 5)
 		for _, kp in ipairs(kps) do
 			writer._WriteF32(kp.Time); writer._WriteF32(kp.Value); writer._WriteF32(kp.Envelope)
@@ -3123,6 +3467,10 @@ SerializeValue = function(writer: Writer, value: any): ()
 		writer._WriteBits(TYPE_SPECIAL, 5)
 		writer._WriteBits(SUBTYPE_COLOR_SEQUENCE, 5)
 		local kps = value.Keypoints
+		local keypointLimit = (Config :: any).maxSequenceKeypoints or 31
+		if #kps > keypointLimit then
+			error(`[Pancakes] ColorSequence has {#kps} keypoints; configured maximum is {keypointLimit}`, 2)
+		end
 		writer._WriteBits(#kps, 5)
 		for _, kp in ipairs(kps) do
 			writer._WriteF32(kp.Time)
@@ -3157,6 +3505,10 @@ SerializeValue = function(writer: Writer, value: any): ()
 		writer._WriteVarint(value.UnixTimestampMillis)
 
 	else
+		if AutoRuntime.writeExpandedValue(writer, value, valueType) then
+			return
+		end
+
 		local converter = converterByMetatable[valueType]
 		if converter then
 			writer._WriteBits(TYPE_SPECIAL, 5)
@@ -3204,6 +3556,7 @@ function AutoRuntime.serializeKey(writer: Writer, key: any): ()
 		writer._WriteBits(TYPE_STRING_SHORT, 5)
 		writer._WriteStringCached(key)
 	end
+
 	local keyIndex = AutoRuntime.keyIndex
 	if keyIndex < 255 then
 		keyIndex += 1
@@ -3221,6 +3574,7 @@ function AutoRuntime.serializePlanKey(writer: Writer, key: string): ()
 		writer._WriteBits(commonIndex, 5)
 		return
 	end
+
 	local cached = AutoRuntime.keyForward[key]
 	if cached ~= nil then
 		writer._WriteBits(TYPE_SPECIAL, 5)
@@ -3228,6 +3582,7 @@ function AutoRuntime.serializePlanKey(writer: Writer, key: string): ()
 		writer._WriteBits(cached, 8)
 		return
 	end
+
 	local len = #key
 	if len == 0 then
 		writer._WriteBits(TYPE_STRING_EMPTY, 5)
@@ -3240,6 +3595,7 @@ function AutoRuntime.serializePlanKey(writer: Writer, key: string): ()
 		writer._WriteBits(TYPE_STRING_SHORT, 5)
 		writer._WriteStringCached(key)
 	end
+
 	local keyIndex = AutoRuntime.keyIndex
 	if keyIndex < 255 then
 		keyIndex += 1
@@ -3251,15 +3607,17 @@ end
 
 local ENUM_VALUE_LOOKUP_CACHE: {[string]: {[number]: EnumItem}} = {}
 
-local function getEnumValueLookup(enumTypeName: string): {[number]: EnumItem}?
+getEnumValueLookup = function(enumTypeName: string): {[number]: EnumItem}?
 	local cached = ENUM_VALUE_LOOKUP_CACHE[enumTypeName]
 	if cached then
 		return cached
 	end
+
 	local enumType = (Enum :: any)[enumTypeName]
 	if not enumType then
 		return nil
 	end
+
 	local lookup: {[number]: EnumItem} = {}
 	for _, item in ipairs(enumType:GetEnumItems()) do
 		lookup[item.Value] = item
@@ -3351,6 +3709,7 @@ DeserializeValue = function(reader: Reader): any
 				error(`[Pancakes] Declared array-RLE count {totalCount} exceeds the decode safety budget ({AutoRuntime.decodeBitBudget} bits, {neededBits} required)`, 2)
 			end
 		end
+
 		local arr        = tableCreate(totalCount)
 		local idx        = 1
 		while idx <= totalCount do
@@ -3358,6 +3717,7 @@ DeserializeValue = function(reader: Reader): any
 			if Config.strictBoundsChecking and (run == 0 or idx + run - 1 > totalCount) then
 				error(`[Pancakes] Invalid array-RLE run {run} at output index {idx} for declared count {totalCount}`, 2)
 			end
+
 			local val = DeserializeValue(reader)
 			for _ = 1, run do arr[idx] = val; idx += 1 end
 		end
@@ -3373,19 +3733,19 @@ DeserializeValue = function(reader: Reader): any
 		local r00, r01, r02            = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
 		local r10, r11, r12            = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
 		local r20, r21, r22            = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
-		return CFrame.new(px,py,pz, r00,r01,r02, r10,r11,r12, r20,r21,r22)
+		return CFrame.new(px, py, pz, r00, r01, r02, r10, r11, r12, r20, r21, r22)
 
 	elseif tag == TYPE_CFRAME_SIMPLE then
 		local px, py, pz = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
 		local lx, ly, lz = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
-		return CFrame.lookAt(Vector3.new(px,py,pz), Vector3.new(px+lx, py+ly, pz+lz))
+		return CFrame.lookAt(Vector3.new(px, py, pz), Vector3.new(px + lx, py + ly, pz + lz))
 
 	elseif tag == TYPE_COLOR3 then
 		reader._FlushBits()
 		return Color3.new(
-			reader._ReadU8()/255,
-			reader._ReadU8()/255,
-			reader._ReadU8()/255
+			reader._ReadU8() / 255,
+			reader._ReadU8() / 255,
+			reader._ReadU8() / 255
 		)
 	elseif tag == TYPE_UDIM then
 		return UDim.new(reader._ReadF32(), reader._ReadI16())
@@ -3423,6 +3783,7 @@ DeserializeValue = function(reader: Reader): any
 			local next = reader._ReadU16()
 			enumVal    = next == 65535 and reader._ReadU32() or next
 		end
+
 		local lookup = getEnumValueLookup(enumTypeName)
 		if not lookup then error(`[Pancakes] Unknown enum type: {enumTypeName}`) end
 		local item = lookup[enumVal]
@@ -3491,6 +3852,7 @@ DeserializeValue = function(reader: Reader): any
 			if shape == nil then
 				error(`[Pancakes] Unknown Auto table-shape index: {index}`, 2)
 			end
+
 			local keys = shape.keys
 			local count = #keys
 			local tbl = {}
@@ -3506,6 +3868,7 @@ DeserializeValue = function(reader: Reader): any
 			if shape == nil then
 				error(`[Pancakes] Unknown typed Auto table-shape index: {index}`, 2)
 			end
+
 			local keys = shape.keys
 			local kinds = shape.kinds
 			local count = #keys
@@ -3542,7 +3905,7 @@ DeserializeValue = function(reader: Reader): any
 			for i = 1, count do
 				kps[i] = ColorSequenceKeypoint.new(
 					reader._ReadF32(),
-					Color3.new(reader._ReadBits(8)/255, reader._ReadBits(8)/255, reader._ReadBits(8)/255)
+					Color3.new(reader._ReadBits(8) / 255, reader._ReadBits(8) / 255, reader._ReadBits(8) / 255)
 				)
 			end
 			return ColorSequence.new(kps)
@@ -3551,6 +3914,7 @@ DeserializeValue = function(reader: Reader): any
 		elseif sub == SUBTYPE_VECTOR3INT16  then return Vector3int16.new(reader._ReadI16(), reader._ReadI16(), reader._ReadI16())
 		elseif sub == SUBTYPE_VECTOR2INT16  then return Vector2int16.new(reader._ReadI16(), reader._ReadI16())
 		elseif sub == SUBTYPE_BRICKCOLOR    then return BrickColor.new(reader._ReadBits(10))
+		elseif sub >= EXPANDED_SUBTYPE.BUFFER then return AutoRuntime.readExpandedValue(reader, sub)
 
 		elseif sub == SUBTYPE_CUSTOM then
 			local id = reader._ReadBits(16)
@@ -3698,6 +4062,7 @@ function AutoRuntime.buildRecordPlan(value: {[any]: any}, depth: number): AutoRe
 		and child.kinds[3] == RECORD_VALUE_U16 then
 		layout = 1
 	end
+
 	local flagsChild, statsChild = children[3], children[9]
 	if count == 9
 		and kinds[1] == RECORD_VALUE_BOOLEAN and kinds[2] == RECORD_VALUE_BOOLEAN
@@ -3851,6 +4216,7 @@ function AutoRuntime.recordMatchesPlan(value: any, plan: AutoRecordPlan): boolea
 			if optional[i] then continue end
 			return false
 		end
+
 		local kind = kinds[i]
 		if kind == RECORD_VALUE_STRING then
 			if type(fieldValue) ~= "string" then return false end
@@ -3895,6 +4261,7 @@ function AutoRuntime.recordValuesMatchPlan(value: any, plan: AutoRecordPlan): bo
 			if optional[i] then continue end
 			return false
 		end
+
 		local kind = kinds[i]
 		if kind == RECORD_VALUE_STRING then
 			if type(fieldValue) ~= "string" then return false end
@@ -3931,6 +4298,7 @@ function AutoRuntime.writeRecordDataChecked(writer: Writer, value: any, plan: Au
 		local mt = getmetatable(value)
 		if mt and (converterByMetatable[mt] or (mt.__type and converterByMetatable[mt.__type])) then return false end
 	end
+
 	local actualCount = 0
 	for key in value do
 		actualCount += 1
@@ -4050,10 +4418,12 @@ function AutoRuntime.readRecordPlan(reader: Reader, depth: number): AutoRecordPl
 	if depth > 4 then
 		error("[Pancakes] Typed Auto record plan exceeds the maximum nesting depth", 2)
 	end
+
 	local count = reader._ReadU8()
 	if Config.strictBoundsChecking and count * 5 > reader._AvailableBits() then
 		error(`[Pancakes] Typed Auto record plan declares {count} fields beyond the remaining payload`, 2)
 	end
+
 	local encodedLayout = reader._ReadBits(2)
 	if encodedLayout > 3 then
 		error(`[Pancakes] Unknown typed Auto record layout: {encodedLayout}`, 2)
@@ -4066,6 +4436,7 @@ function AutoRuntime.readRecordPlan(reader: Reader, depth: number): AutoRecordPl
 		plan = {count = 0, keys = {}, optional = {}, keyLookup = {}, kinds = {}, children = {}, staticOnly = false, dynamicValues = false, layout = 0}
 		AutoRuntime.decodePlanPool[poolIndex] = plan
 	end
+
 	local keys = plan.keys
 	local kinds = plan.kinds
 	local optional = plan.optional
@@ -4146,6 +4517,7 @@ function AutoRuntime.readRecordPlan(reader: Reader, depth: number): AutoRecordPl
 			end
 		end
 	end
+
 	local flagsChild, statsChild = children[3], children[9]
 	if encodedLayout ~= 3 and count == 9 and kinds[1] == 2 and kinds[2] == 2 and kinds[3] == RECORD_VALUE_NESTED
 		and kinds[4] == 3 and kinds[5] == 2 and kinds[6] == 1
@@ -4181,6 +4553,7 @@ function AutoRuntime.writeRecordData(writer: Writer, value: {[any]: any}, plan: 
 			writer._WriteBits(present and 1 or 0, 1)
 			if not present then continue end
 		end
+
 		local kind = kinds[i]
 		if kind == RECORD_VALUE_STRING then
 			local len = #fieldValue
@@ -4352,6 +4725,7 @@ function AutoRuntime.serializeRecordArray(writer: Writer, values: {any}, count: 
 		writer._WriteBits(0, 2)
 		return true
 	end
+
 	local plan: AutoRecordPlan? = nil
 	local builtNow = false
 	if Config.sortedKeysCacheEnabled then
@@ -4488,6 +4862,7 @@ function AutoRuntime.deserializeRecordArray(reader: Reader): {any}
 	if count < 2 then
 		error(`[Pancakes] Typed Auto record array has invalid count: {count}`, 2)
 	end
+
 	local plan = AutoRuntime.readRecordPlan(reader, 0)
 	if Config.strictBoundsChecking then
 		if plan.count == 0 then
@@ -4496,6 +4871,7 @@ function AutoRuntime.deserializeRecordArray(reader: Reader): {any}
 			error(`[Pancakes] Declared record count {count} exceeds the decode safety budget ({AutoRuntime.decodeBitBudget} bits)`, 2)
 		end
 	end
+
 	local result: {any}
 	if plan.staticOnly then
 		result = reader._ReadStaticRecordArray(count, plan)
@@ -4543,7 +4919,7 @@ function AutoRuntime.classifyDenseDatatype(values: {any}, count: number): number
 				local xe = (x - xi) - mathRound((x - xi) * 255) / 255
 				local ye = (y - yi) - mathRound((y - yi) * 255) / 255
 				local ze = (z - zi) - mathRound((z - zi) * 255) / 255
-				if xe*xe + ye*ye + ze*ze >= 0.00000081 then quantized = false end
+				if xe * xe + ye * ye + ze * ze >= 0.00000081 then quantized = false end
 			end
 		end
 		return quantized and 1 or 2
@@ -4590,7 +4966,7 @@ function AutoRuntime.writeDenseDatatype(writer: Writer, values: {any}, count: nu
 			writer._WriteF32(position.X); writer._WriteF32(position.Y); writer._WriteF32(position.Z)
 			writer._WriteF32(look.X); writer._WriteF32(look.Y); writer._WriteF32(look.Z)
 		elseif mode == 5 then
-			local x,y,z,r00,r01,r02,r10,r11,r12,r20,r21,r22 = value:GetComponents()
+			local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = value:GetComponents()
 			writer._WriteF32(x); writer._WriteF32(y); writer._WriteF32(z); writer._WriteF32(r00); writer._WriteF32(r01); writer._WriteF32(r02)
 			writer._WriteF32(r10); writer._WriteF32(r11); writer._WriteF32(r12); writer._WriteF32(r20); writer._WriteF32(r21); writer._WriteF32(r22)
 		else writer._WriteI16(value.X); writer._WriteI16(value.Y) end
@@ -4608,14 +4984,14 @@ function AutoRuntime.readDenseDatatype(reader: Reader, count: number, mode: numb
 	end
 	for i = 1, count do
 		if mode == 1 then
-			values[i] = Vector3.new(reader._ReadI16() + reader._ReadU8()/255, reader._ReadI16() + reader._ReadU8()/255, reader._ReadI16() + reader._ReadU8()/255)
+			values[i] = Vector3.new(reader._ReadI16() + reader._ReadU8() / 255, reader._ReadI16() + reader._ReadU8() / 255, reader._ReadI16() + reader._ReadU8() / 255)
 		elseif mode == 2 then values[i] = Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
-		elseif mode == 3 then values[i] = Color3.new(reader._ReadU8()/255, reader._ReadU8()/255, reader._ReadU8()/255)
+		elseif mode == 3 then values[i] = Color3.new(reader._ReadU8() / 255, reader._ReadU8() / 255, reader._ReadU8() / 255)
 		elseif mode == 4 then
-			local x,y,z,lx,ly,lz = reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32()
-			values[i] = CFrame.lookAt(Vector3.new(x,y,z), Vector3.new(x+lx,y+ly,z+lz))
+			local x, y, z, lx, ly, lz = reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
+			values[i] = CFrame.lookAt(Vector3.new(x, y, z), Vector3.new(x + lx, y + ly, z + lz))
 		elseif mode == 5 then
-			values[i] = CFrame.new(reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32(),reader._ReadF32())
+			values[i] = CFrame.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
 		elseif mode == 6 then values[i] = Vector2.new(reader._ReadI16(), reader._ReadI16())
 		else error(`[Pancakes] Unknown dense datatype mode: {mode}`, 2) end
 	end
@@ -4630,57 +5006,95 @@ for i = 1, #BASE85_CHARS do
 end
 
 function Pancakes.ToBase85(buf: buffer): string
-	local len    = bufferLen(buf)
-	local result = tableCreate(mathFloor(len * 1.25) + 5)
-	local idx    = 1
+	local len = bufferLen(buf)
+	local result = tableCreate(mathCeil(len * 1.25))
+	local index = 1
+
 	for i = 0, len - 1, 4 do
-		local bytes = mathMin(4, len - i)
+		local byteCount = mathMin(4, len - i)
 		local value = 0
-		for j = 0, bytes - 1 do value = value * 256 + bufferReadU8(buf, i + j) end
-		if bytes == 4 and value == 0 then
-			result[idx] = "z"; idx += 1
-		else
-			for j = 4, 0, -1 do
-				local ci = (value % 85) + 1
-				result[idx + j] = stringSub(BASE85_CHARS, ci, ci)
-				value = mathFloor(value / 85)
-			end
-			idx += mathFloor(bytes * 1.25) + 1
+
+		for j = 0, byteCount - 1 do
+			value = value * 256 + bufferReadU8(buf, i + j)
 		end
+
+		for _ = byteCount + 1, 4 do
+			value *= 256
+		end
+
+		local digit5 = value % 85 + 1
+		value = mathFloor(value / 85)
+		local digit4 = value % 85 + 1
+		value = mathFloor(value / 85)
+		local digit3 = value % 85 + 1
+		value = mathFloor(value / 85)
+		local digit2 = value % 85 + 1
+		value = mathFloor(value / 85)
+		local digit1 = value % 85 + 1
+
+		result[index] = stringSub(BASE85_CHARS, digit1, digit1)
+		result[index + 1] = stringSub(BASE85_CHARS, digit2, digit2)
+		if byteCount >= 2 then
+			result[index + 2] = stringSub(BASE85_CHARS, digit3, digit3)
+		end
+		if byteCount >= 3 then
+			result[index + 3] = stringSub(BASE85_CHARS, digit4, digit4)
+		end
+		if byteCount == 4 then
+			result[index + 4] = stringSub(BASE85_CHARS, digit5, digit5)
+		end
+		index += byteCount + 1
 	end
-	return tableConcat(result, "", 1, idx - 1)
+
+	return tableConcat(result, "", 1, index - 1)
 end
 
 function Pancakes.FromBase85(str: string): buffer
-	local len    = #str
-	local result = bufferCreate(mathFloor(len * 0.8) + 4)
-	local outIdx = 0
-	local i      = 1
-	while i <= len do
-		local char = stringSub(str, i, i)
-		if char == "z" then
-			for j = 0, 3 do bufferWriteU8(result, outIdx + j, 0) end
-			outIdx += 4; i += 1
-		else
-			local chars = mathMin(5, len - i + 1)
-			local value = 0
-			for j = 0, chars - 1 do
-				local b = stringSub(str, i + j, i + j):byte()
-				value = value * 85 + (BASE85_DECODE[b] or 0)
+	local len = #str
+	local remainder = len % 5
+
+	if remainder == 1 then
+		error("[Pancakes] Invalid Base85 length", 2)
+	end
+
+	local outputLength = mathFloor(len / 5) * 4
+	if remainder > 0 then
+		outputLength += remainder - 1
+	end
+
+	local result = bufferCreate(outputLength)
+	local outputOffset = 0
+
+	for i = 1, len, 5 do
+		local characterCount = mathMin(5, len - i + 1)
+		local value = 0
+
+		for j = 0, characterCount - 1 do
+			local byte = stringSub(str, i + j, i + j):byte()
+			local digit = BASE85_DECODE[byte]
+			if digit == nil then
+				error(`[Pancakes] Invalid Base85 character at index {i + j}`, 2)
 			end
-			local bytesToWrite = mathFloor(chars * 0.8)
-			for j = bytesToWrite - 1, 0, -1 do
-				if outIdx + j < bufferLen(result) then
-					bufferWriteU8(result, outIdx + j, value % 256)
-					value = mathFloor(value / 256)
-				end
-			end
-			outIdx += bytesToWrite; i += chars
+			value = value * 85 + digit
+		end
+
+		for _ = characterCount + 1, 5 do
+			value = value * 85 + 84
+		end
+
+		if value > 4294967295 then
+			error(`[Pancakes] Invalid Base85 group at index {i}`, 2)
+		end
+
+		local byteCount = characterCount - 1
+		for j = 0, byteCount - 1 do
+			local shift = 24 - j * 8
+			bufferWriteU8(result, outputOffset, mathFloor(value / 2 ^ shift) % 256)
+			outputOffset += 1
 		end
 	end
-	local final = bufferCreate(outIdx)
-	bufferCopy(final, 0, result, 0, outIdx)
-	return final
+
+	return result
 end
 
 local BASE91_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\""
@@ -4705,6 +5119,7 @@ function Pancakes.ToBase91(buf: buffer): string
 			else
 				val = bit32band(v, 16383); v = bit32rshift(v, 14); b -= 14
 			end
+
 			local a = val % 91 + 1
 			local c = mathFloor(val / 91) + 1
 			result[idx]     = stringSub(BASE91_CHARS, a, a)
@@ -4724,33 +5139,46 @@ function Pancakes.ToBase91(buf: buffer): string
 end
 
 function Pancakes.FromBase91(str: string): buffer
-	local len    = #str
-	local result = bufferCreate(mathFloor(len * 0.87) + 4)
-	local outIdx = 0
-	local v, b   = -1, 0
+	local len = #str
+	local result = bufferCreate(mathCeil(len * 0.875))
+	local outputOffset = 0
+	local queue = 0
+	local bitCount = 0
+	local pending = -1
+
 	for i = 1, len do
-		local p = BASE91_DECODE[stringSub(str, i, i):byte()]
-		if p == nil then continue end
-		if v < 0 then
-			v = p
+		local byte = stringSub(str, i, i):byte()
+		local digit = BASE91_DECODE[byte]
+		if digit == nil then
+			error(`[Pancakes] Invalid Base91 character at index {i}`, 2)
+		end
+
+		if pending < 0 then
+			pending = digit
 		else
-			v += p * 91
-			b  = bit32band(v, 8191) > 88 and 13 or 14
-			repeat
-				bufferWriteU8(result, outIdx, bit32band(v, 255))
-				outIdx += 1
-				v = bit32rshift(v, 8)
-				b -= 8
-			until b <= 7
-			v = -1
+			local value = pending + digit * 91
+			queue = bit32bor(queue, bit32lshift(value, bitCount))
+			bitCount += if bit32band(value, 8191) > 88 then 13 else 14
+
+			while bitCount >= 8 do
+				bufferWriteU8(result, outputOffset, bit32band(queue, 255))
+				outputOffset += 1
+				queue = bit32rshift(queue, 8)
+				bitCount -= 8
+			end
+
+			pending = -1
 		end
 	end
-	if v >= 0 then
-		bufferWriteU8(result, outIdx, bit32band(v, 255))
-		outIdx += 1
+
+	if pending >= 0 then
+		queue = bit32bor(queue, bit32lshift(pending, bitCount))
+		bufferWriteU8(result, outputOffset, bit32band(queue, 255))
+		outputOffset += 1
 	end
-	local final = bufferCreate(outIdx)
-	bufferCopy(final, 0, result, 0, outIdx)
+
+	local final = bufferCreate(outputOffset)
+	bufferCopy(final, 0, result, 0, outputOffset)
 	return final
 end
 
@@ -4855,6 +5283,7 @@ local function cloneDecodedLayout(snapshot: DecodeLayoutSnapshot): {[any]: any}
 		end
 		return cloneTree(sourceRoot)
 	end
+
 	local arrayKey, nestedKey, nestedKey2 = snapshot.arrayKey, snapshot.nestedKey, snapshot.nestedKey2
 	local sourceValues = sourceRoot[arrayKey]
 
@@ -4866,6 +5295,7 @@ local function cloneDecodedLayout(snapshot: DecodeLayoutSnapshot): {[any]: any}
 		if nestedKey2 ~= nil then row[nestedKey2] = tableClone(sourceRow[nestedKey2]) end
 		values[i] = row
 	end
+
 	local result = tableClone(sourceRoot)
 	result[arrayKey] = values
 	if snapshot.layout == 2 then
@@ -4927,6 +5357,7 @@ function AutoSnapshotRuntime.snapshotTreesEqual(left: any, right: any): boolean
 			if not AutoSnapshotRuntime.snapshotTreesEqual(leftValue, rightValue) then return false end
 		elseif leftValue ~= rightValue then return false end
 	end
+
 	local rightCount = 0
 	for _ in right do
 		rightCount += 1
@@ -4943,6 +5374,7 @@ function AutoSnapshotRuntime.tryReuseGenericAuto(data: any): buffer?
 		else AutoSnapshotRuntime.genericCooldowns[data] = cooldown - 1 end
 		return nil
 	end
+
 	local snapshot = AutoSnapshotRuntime.genericEncodes[data]
 	if snapshot == nil then return nil end
 	if snapshot.commonKeys ~= Config.commonKeys
@@ -5057,6 +5489,7 @@ function AutoSnapshotRuntime.tryReuseLayout2(data: {[any]: any}, snapshot: AutoL
 			for _ in row do rowCount += 1; if rowCount > 9 then return rejectAutoLayoutSnapshot(data) end end
 			if rowCount ~= 9 then return rejectAutoLayoutSnapshot(data) end
 		end
+
 		local b1, b2, flags = row[k1], row[k2], row[k3]
 		local id, b3, name, orderIndex, rarity, stats = row[k4], row[k5], row[k6], row[k7], row[k8], row[k9]
 		if type(flags) ~= "table" or type(stats) ~= "table"
@@ -5069,6 +5502,7 @@ function AutoSnapshotRuntime.tryReuseLayout2(data: {[any]: any}, snapshot: AutoL
 			for _ in stats do statsCount += 1; if statsCount > 3 then return rejectAutoLayoutSnapshot(data) end end
 			if flagsCount ~= 3 or statsCount ~= 3 then return rejectAutoLayoutSnapshot(data) end
 		end
+
 		local fv1, fv2, fv3 = flags[f1], flags[f2], flags[f3]
 		local sv1, sv2, sv3 = stats[s1], stats[s2], stats[s3]
 		local base = (i - 1) * 13
@@ -5147,6 +5581,7 @@ local function tryReuseAutoLayoutSnapshot(data: any): buffer?
 		else AutoSnapshotRuntime.cooldowns[data] = cooldown - 1 end
 		return nil
 	end
+
 	local snapshot = AutoSnapshotRuntime.layouts[data]
 	if snapshot == nil or snapshot.commonKeys ~= Config.commonKeys
 		or snapshot.stringCacheMinLength ~= Config.stringCacheMinLength
@@ -5220,6 +5655,7 @@ local function tryReuseAutoLayoutSnapshot(data: any): buffer?
 			end
 			if nestedCount ~= 3 then return rejectAutoLayoutSnapshot(data) end
 		end
+
 		local base = (i - 1) * 7
 		if value1 ~= flat[base + 1] or value2 ~= flat[base + 2]
 			or value3 ~= flat[base + 3] or value4 ~= flat[base + 4]
@@ -5271,9 +5707,7 @@ local function tryReuseAutoLayoutSnapshot(data: any): buffer?
 	return cloneBuffer(encoded)
 end
 
-function AutoSnapshotRuntime.captureLayout2(
-	data: {[any]: any}, encoded: buffer, rootKeys: {any}, arrayIndex: number,
-	values: {any}, plan: AutoRecordPlan): boolean
+function AutoSnapshotRuntime.captureLayout2(data: {[any]: any}, encoded: buffer, rootKeys: {any}, arrayIndex: number, values: {any}, plan: AutoRecordPlan): boolean
 	local rootCount, count = #rootKeys, #values
 	if hasRegisteredConverter(data) or hasRegisteredConverter(values)
 		or next(values, count) ~= nil or not AutoRuntime.lastLayoutValid
@@ -5293,9 +5727,10 @@ function AutoSnapshotRuntime.captureLayout2(
 				entryCount += 1
 				if type(entry) == "table" then return false end
 			end
+
 			local denseLength = #value
 			rootMarkers[i] = if denseLength > 0 and next(value, denseLength) == nil
-				then denseLength else -entryCount - 1
+				then denseLength else - entryCount - 1
 			rootCopies[i] = tableClone(value)
 			immutable = immutable and tableIsFrozen(value)
 		elseif i ~= arrayIndex and type(value) ~= "number" and type(value) ~= "string"
@@ -5329,6 +5764,7 @@ function AutoSnapshotRuntime.captureLayout2(
 		flat[base + 9], flat[base + 10] = row[k7], row[k8]
 		flat[base + 11], flat[base + 12], flat[base + 13] = stats[s1], stats[s2], stats[s3]
 	end
+
 	local patchOffsets = tableCreate(count * 12, 0)
 	table.move(AutoRuntime.lastLayoutOffsets, 1, count * 12, 1, patchOffsets)
 	AutoSnapshotRuntime.layouts[data] = {
@@ -5358,6 +5794,7 @@ local function captureAutoLayoutSnapshot(data: any, encoded: buffer): ()
 		AutoSnapshotRuntime.cooldowns[data] = 32
 		return
 	end
+
 	local rootKeys = cachedRoot.sortedKeys
 	local rootCount = cachedRoot.count
 	local rootValues = tableCreate(rootCount)
@@ -5419,6 +5856,7 @@ local function captureAutoLayoutSnapshot(data: any, encoded: buffer): ()
 		flat[base + 3], flat[base + 4] = row[key3], row[key4]
 		flat[base + 5], flat[base + 6], flat[base + 7] = nested[child1], nested[child2], nested[child3]
 	end
+
 	local retained = cloneBuffer(encoded)
 	local patchOffsets = tableCreate(count * 10, 0)
 	table.move(AutoRuntime.lastLayoutOffsets, 1, count * 10, 1, patchOffsets)
@@ -5442,6 +5880,7 @@ local function serializeCachedAutoRoot(writer: Writer, data: any): boolean
 	if not Config.sortedKeysCacheEnabled or type(data) ~= "table" or hasRegisteredConverter(data) then
 		return false
 	end
+
 	local cached = sortedKeysCache[data]
 	if cached == nil then return false end
 	local count = cached.count
@@ -5471,7 +5910,687 @@ local function serializeCachedAutoRoot(writer: Writer, data: any): boolean
 	return true
 end
 
+function AutoRuntime.trySerializeFixedDatatype(value: any, valueType: string): buffer?
+	if valueType == "Vector2" then
+		local x, y = value.X, value.Y
+		if x % 1 == 0 and y % 1 == 0 and x >= -32768 and x <= 32767 and y >= -32768 and y <= 32767 then
+			local result = bufferCreate(6)
+			bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_VECTOR2_INT)
+			bufferWriteI16(result, 2, x); bufferWriteI16(result, 4, y)
+			return result
+		end
+
+		local result = bufferCreate(10)
+		bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_VECTOR2)
+		bufferWriteF32(result, 2, x); bufferWriteF32(result, 6, y)
+		return result
+	elseif valueType == "Vector3" then
+		local x, y, z = value.X, value.Y, value.Z
+		if x % 1 == 0 and y % 1 == 0 and z % 1 == 0
+			and x >= -32768 and x <= 32767 and y >= -32768 and y <= 32767 and z >= -32768 and z <= 32767 then
+			local result = bufferCreate(8)
+			bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_VECTOR3_INT)
+			bufferWriteI16(result, 2, x); bufferWriteI16(result, 4, y); bufferWriteI16(result, 6, z)
+			return result
+		end
+
+		local xi, yi, zi = mathFloor(x), mathFloor(y), mathFloor(z)
+		if xi >= -32768 and xi <= 32767 and yi >= -32768 and yi <= 32767 and zi >= -32768 and zi <= 32767 then
+			local xq, yq, zq = mathRound((x - xi) * 255), mathRound((y - yi) * 255), mathRound((z - zi) * 255)
+			local xe, ye, ze = (x - xi) - xq / 255, (y - yi) - yq / 255, (z - zi) - zq / 255
+			if xe * xe + ye * ye + ze * ze < 0.00000081 then
+				local result = bufferCreate(12)
+				bufferWriteU8(result, 0, 216)
+				bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_VECTOR3_QUANTIZED, 7), 5)))
+				bufferWriteU8(result, 2, bit32rshift(SUBTYPE_VECTOR3_QUANTIZED, 3))
+				bufferWriteI16(result, 3, xi); bufferWriteU8(result, 5, xq)
+				bufferWriteI16(result, 6, yi); bufferWriteU8(result, 8, yq)
+				bufferWriteI16(result, 9, zi); bufferWriteU8(result, 11, zq)
+				return result
+			end
+		end
+
+		local result = bufferCreate(14)
+		bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_VECTOR3)
+		bufferWriteF32(result, 2, x); bufferWriteF32(result, 6, y); bufferWriteF32(result, 10, z)
+		return result
+	elseif valueType == "CFrame" then
+		local px, py, pz = value.X, value.Y, value.Z
+		local look = value.LookVector
+		local lx, ly, lz = look.X, look.Y, look.Z
+		local horizontal = lx * lx + lz * lz
+		local simple = false
+		if horizontal > 1e-8 then
+			local inverse = 1 / mathSqrt(horizontal)
+			local right = value.RightVector
+			local dx, dz = right.X + lz * inverse, right.Z - lx * inverse
+			simple = dx * dx + dz * dz + right.Y * right.Y < 1e-6
+		end
+		if simple then
+			local result = bufferCreate(26)
+			bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_CFRAME_SIMPLE)
+			bufferWriteF32(result, 2, px); bufferWriteF32(result, 6, py); bufferWriteF32(result, 10, pz)
+			bufferWriteF32(result, 14, lx); bufferWriteF32(result, 18, ly); bufferWriteF32(result, 22, lz)
+			return result
+		end
+
+		local result = bufferCreate(50)
+		bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_CFRAME)
+		bufferWriteF32(result, 2, px); bufferWriteF32(result, 6, py); bufferWriteF32(result, 10, pz)
+		local _, _, _, r00, r01, r02, r10, r11, r12, r20, r21, r22 = value:GetComponents()
+		bufferWriteF32(result, 14, r00); bufferWriteF32(result, 18, r01); bufferWriteF32(result, 22, r02)
+		bufferWriteF32(result, 26, r10); bufferWriteF32(result, 30, r11); bufferWriteF32(result, 34, r12)
+		bufferWriteF32(result, 38, r20); bufferWriteF32(result, 42, r21); bufferWriteF32(result, 46, r22)
+		return result
+	elseif valueType == "Color3" then
+		local result = bufferCreate(5)
+		bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_COLOR3)
+		bufferWriteU8(result, 2, mathClamp(mathRound(value.R * 255), 0, 255))
+		bufferWriteU8(result, 3, mathClamp(mathRound(value.G * 255), 0, 255))
+		bufferWriteU8(result, 4, mathClamp(mathRound(value.B * 255), 0, 255))
+		return result
+	elseif valueType == "UDim" then
+		local result = bufferCreate(8)
+		bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_UDIM)
+		bufferWriteF32(result, 2, value.Scale); bufferWriteI16(result, 6, value.Offset)
+		return result
+	elseif valueType == "UDim2" then
+		local result = bufferCreate(14)
+		bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_UDIM2)
+		bufferWriteF32(result, 2, value.X.Scale); bufferWriteI16(result, 6, value.X.Offset)
+		bufferWriteF32(result, 8, value.Y.Scale); bufferWriteI16(result, 12, value.Y.Offset)
+		return result
+	elseif valueType == "Vector2int16" then
+		local result = bufferCreate(7)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_VECTOR2INT16, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(SUBTYPE_VECTOR2INT16, 3))
+		bufferWriteI16(result, 3, value.X); bufferWriteI16(result, 5, value.Y)
+		return result
+	elseif valueType == "Vector3int16" then
+		local result = bufferCreate(9)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_VECTOR3INT16, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(SUBTYPE_VECTOR3INT16, 3))
+		bufferWriteI16(result, 3, value.X); bufferWriteI16(result, 5, value.Y); bufferWriteI16(result, 7, value.Z)
+		return result
+	elseif valueType == "NumberRange" then
+		local result = bufferCreate(11)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_NUMBER_RANGE, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(SUBTYPE_NUMBER_RANGE, 3))
+		bufferWriteF32(result, 3, value.Min); bufferWriteF32(result, 7, value.Max)
+		return result
+	elseif valueType == "NumberSequence" then
+		local keypoints = value.Keypoints
+		local count = #keypoints
+		local limit = (Config :: any).maxSequenceKeypoints or 31
+		if count > limit then error(`[Pancakes] NumberSequence has {count} keypoints; configured maximum is {limit}`, 2) end
+		local result = bufferCreate(3 + count * 12)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_NUMBER_SEQUENCE, 7), 5)))
+		bufferWriteU8(result, 2, bit32bor(bit32rshift(SUBTYPE_NUMBER_SEQUENCE, 3), bit32lshift(count, 2)))
+		local offset = 3
+		for index = 1, count do
+			local keypoint = keypoints[index]
+			bufferWriteF32(result, offset, keypoint.Time); bufferWriteF32(result, offset + 4, keypoint.Value); bufferWriteF32(result, offset + 8, keypoint.Envelope)
+			offset += 12
+		end
+		return result
+	elseif valueType == "ColorSequence" then
+		local keypoints = value.Keypoints
+		local count = #keypoints
+		local limit = (Config :: any).maxSequenceKeypoints or 31
+		if count > limit then error(`[Pancakes] ColorSequence has {count} keypoints; configured maximum is {limit}`, 2) end
+		local result = bufferCreate(3 + count * 7)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_COLOR_SEQUENCE, 7), 5)))
+		bufferWriteU8(result, 2, bit32bor(bit32rshift(SUBTYPE_COLOR_SEQUENCE, 3), bit32lshift(count, 2)))
+		local offset = 3
+		for index = 1, count do
+			local keypoint, color = keypoints[index], keypoints[index].Value
+			bufferWriteF32(result, offset, keypoint.Time)
+			bufferWriteU8(result, offset + 4, mathClamp(mathRound(color.R * 255), 0, 255))
+			bufferWriteU8(result, offset + 5, mathClamp(mathRound(color.G * 255), 0, 255))
+			bufferWriteU8(result, offset + 6, mathClamp(mathRound(color.B * 255), 0, 255))
+			offset += 7
+		end
+		return result
+	elseif valueType == "BrickColor" then
+		local number = value.Number
+		local result = bufferCreate(4)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_BRICKCOLOR, 7), 5)))
+		bufferWriteU8(result, 2, bit32bor(bit32rshift(SUBTYPE_BRICKCOLOR, 3), bit32lshift(bit32band(number, 63), 2)))
+		bufferWriteU8(result, 3, bit32rshift(number, 6))
+		return result
+	elseif valueType == "Axes" then
+		local mask = (if value.X then 1 else 0) + (if value.Y then 2 else 0) + (if value.Z then 4 else 0)
+		local result = bufferCreate(3)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.AXES, 7), 5)))
+		bufferWriteU8(result, 2, bit32bor(bit32rshift(EXPANDED_SUBTYPE.AXES, 3), bit32lshift(mask, 2)))
+		return result
+	elseif valueType == "Faces" then
+		local mask = (if value.Right then 1 else 0) + (if value.Top then 2 else 0) + (if value.Back then 4 else 0)
+			+ (if value.Left then 8 else 0) + (if value.Bottom then 16 else 0) + (if value.Front then 32 else 0)
+		local result = bufferCreate(3)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.FACES, 7), 5)))
+		bufferWriteU8(result, 2, bit32bor(bit32rshift(EXPANDED_SUBTYPE.FACES, 3), bit32lshift(mask, 2)))
+		return result
+	elseif valueType == "DateTime" then
+		local encoded = mathAbs(value.UnixTimestampMillis)
+		local bytes, remaining = 1, encoded
+		while remaining >= 128 do bytes += 1; remaining = mathFloor(remaining / 128) end
+		local result = bufferCreate(2 + bytes)
+		bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_DATETIME)
+		local offset = 2
+		while encoded >= 128 do bufferWriteU8(result, offset, bit32bor(encoded % 128, 128)); offset += 1; encoded = mathFloor(encoded / 128) end
+		bufferWriteU8(result, offset, encoded)
+		return result
+	elseif valueType == "Rect" then
+		local result = bufferCreate(19)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.RECT, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(EXPANDED_SUBTYPE.RECT, 3))
+		bufferWriteF32(result, 3, value.Min.X); bufferWriteF32(result, 7, value.Min.Y)
+		bufferWriteF32(result, 11, value.Max.X); bufferWriteF32(result, 15, value.Max.Y)
+		return result
+	elseif valueType == "Ray" then
+		local result = bufferCreate(27)
+		local origin, direction = value.Origin, value.Direction
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.RAY, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(EXPANDED_SUBTYPE.RAY, 3))
+		bufferWriteF32(result, 3, origin.X); bufferWriteF32(result, 7, origin.Y); bufferWriteF32(result, 11, origin.Z)
+		bufferWriteF32(result, 15, direction.X); bufferWriteF32(result, 19, direction.Y); bufferWriteF32(result, 23, direction.Z)
+		return result
+	elseif valueType == "NumberSequenceKeypoint" then
+		local result = bufferCreate(15)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.NUMBER_KEYPOINT, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(EXPANDED_SUBTYPE.NUMBER_KEYPOINT, 3))
+		bufferWriteF32(result, 3, value.Time); bufferWriteF32(result, 7, value.Value); bufferWriteF32(result, 11, value.Envelope)
+		return result
+	elseif valueType == "ColorSequenceKeypoint" then
+		local result = bufferCreate(10)
+		local color = value.Value
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.COLOR_KEYPOINT, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(EXPANDED_SUBTYPE.COLOR_KEYPOINT, 3))
+		bufferWriteF32(result, 3, value.Time)
+		bufferWriteU8(result, 7, mathClamp(mathRound(color.R * 255), 0, 255))
+		bufferWriteU8(result, 8, mathClamp(mathRound(color.G * 255), 0, 255))
+		bufferWriteU8(result, 9, mathClamp(mathRound(color.B * 255), 0, 255))
+		return result
+	elseif valueType == "PhysicalProperties" then
+		local result = bufferCreate(23)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.PHYSICAL, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(EXPANDED_SUBTYPE.PHYSICAL, 3))
+		bufferWriteF32(result, 3, value.Density); bufferWriteF32(result, 7, value.Friction)
+		bufferWriteF32(result, 11, value.Elasticity); bufferWriteF32(result, 15, value.FrictionWeight)
+		bufferWriteF32(result, 19, value.ElasticityWeight)
+		return result
+	elseif valueType == "Region3" then
+		local result = bufferCreate(27)
+		local center, size = value.CFrame.Position, value.Size
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.REGION3, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(EXPANDED_SUBTYPE.REGION3, 3))
+		bufferWriteF32(result, 3, center.X); bufferWriteF32(result, 7, center.Y); bufferWriteF32(result, 11, center.Z)
+		bufferWriteF32(result, 15, size.X); bufferWriteF32(result, 19, size.Y); bufferWriteF32(result, 23, size.Z)
+		return result
+	elseif valueType == "Region3int16" then
+		local result = bufferCreate(15)
+		local minimum, maximum = value.Min, value.Max
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.REGION3INT16, 7), 5)))
+		bufferWriteU8(result, 2, bit32rshift(EXPANDED_SUBTYPE.REGION3INT16, 3))
+		bufferWriteI16(result, 3, minimum.X); bufferWriteI16(result, 5, minimum.Y); bufferWriteI16(result, 7, minimum.Z)
+		bufferWriteI16(result, 9, maximum.X); bufferWriteI16(result, 11, maximum.Y); bufferWriteI16(result, 13, maximum.Z)
+		return result
+	end
+	return nil
+end
+
+function AutoRuntime.tryDeserializeFixedDatatype(data: buffer): (boolean, any)
+	local length = bufferLen(data)
+	if length < 2 then return false, nil end
+	local first = bufferReadU8(data, 1)
+	local tag = bit32band(first, 31)
+	if tag == TYPE_VECTOR2_INT and length == 6 then return true, Vector2.new(bufferReadI16(data, 2), bufferReadI16(data, 4))
+	elseif tag == TYPE_VECTOR2 and length == 10 then return true, Vector2.new(bufferReadF32(data, 2), bufferReadF32(data, 6))
+	elseif tag == TYPE_VECTOR3_INT and length == 8 then return true, Vector3.new(bufferReadI16(data, 2), bufferReadI16(data, 4), bufferReadI16(data, 6))
+	elseif tag == TYPE_VECTOR3 and length == 14 then return true, Vector3.new(bufferReadF32(data, 2), bufferReadF32(data, 6), bufferReadF32(data, 10))
+	elseif tag == TYPE_CFRAME_SIMPLE and length == 26 then
+		local px, py, pz = bufferReadF32(data, 2), bufferReadF32(data, 6), bufferReadF32(data, 10)
+		local lx, ly, lz = bufferReadF32(data, 14), bufferReadF32(data, 18), bufferReadF32(data, 22)
+		return true, CFrame.lookAt(Vector3.new(px, py, pz), Vector3.new(px + lx, py + ly, pz + lz))
+	elseif tag == TYPE_CFRAME and length == 50 then
+		return true, CFrame.new(
+			bufferReadF32(data, 2), bufferReadF32(data, 6), bufferReadF32(data, 10),
+			bufferReadF32(data, 14), bufferReadF32(data, 18), bufferReadF32(data, 22),
+			bufferReadF32(data, 26), bufferReadF32(data, 30), bufferReadF32(data, 34),
+			bufferReadF32(data, 38), bufferReadF32(data, 42), bufferReadF32(data, 46)
+		)
+	elseif tag == TYPE_COLOR3 and length == 5 then
+		return true, Color3.fromRGB(bufferReadU8(data, 2), bufferReadU8(data, 3), bufferReadU8(data, 4))
+	elseif tag == TYPE_UDIM and length == 8 then return true, UDim.new(bufferReadF32(data, 2), bufferReadI16(data, 6))
+	elseif tag == TYPE_UDIM2 and length == 14 then
+		return true, UDim2.new(bufferReadF32(data, 2), bufferReadI16(data, 6), bufferReadF32(data, 8), bufferReadI16(data, 12))
+	elseif tag == TYPE_DATETIME and length >= 3 and length <= 11 then
+		local value, multiplier = 0, 1
+		for offset = 2, length - 1 do
+			local byte = bufferReadU8(data, offset)
+			value += bit32band(byte, 127) * multiplier
+			if bit32band(byte, 128) == 0 then
+				if offset ~= length - 1 then return false, nil end
+				return true, DateTime.fromUnixTimestampMillis(value)
+			end
+			multiplier *= 128
+		end
+	elseif tag ~= TYPE_SPECIAL or length < 3 then return false, nil end
+
+	local second = bufferReadU8(data, 2)
+	local subtype = bit32bor(bit32rshift(first, 5), bit32lshift(bit32band(second, 3), 3))
+	if subtype == SUBTYPE_VECTOR3_QUANTIZED and length == 12 then
+		return true, Vector3.new(
+			bufferReadI16(data, 3) + bufferReadU8(data, 5) / 255,
+			bufferReadI16(data, 6) + bufferReadU8(data, 8) / 255,
+			bufferReadI16(data, 9) + bufferReadU8(data, 11) / 255
+		)
+	elseif subtype == SUBTYPE_VECTOR2INT16 and length == 7 then
+		return true, Vector2int16.new(bufferReadI16(data, 3), bufferReadI16(data, 5))
+	elseif subtype == SUBTYPE_VECTOR3INT16 and length == 9 then
+		return true, Vector3int16.new(bufferReadI16(data, 3), bufferReadI16(data, 5), bufferReadI16(data, 7))
+	elseif subtype == SUBTYPE_NUMBER_RANGE and length == 11 then
+		return true, NumberRange.new(bufferReadF32(data, 3), bufferReadF32(data, 7))
+	elseif subtype == SUBTYPE_NUMBER_SEQUENCE then
+		local count = bit32band(bit32rshift(second, 2), 31)
+		if length ~= 3 + count * 12 then return false, nil end
+		local keypoints = tableCreate(count) :: {NumberSequenceKeypoint}
+		local offset = 3
+		for index = 1, count do
+			keypoints[index] = NumberSequenceKeypoint.new(bufferReadF32(data, offset), bufferReadF32(data, offset + 4), bufferReadF32(data, offset + 8)); offset += 12
+		end
+		return true, NumberSequence.new(keypoints)
+	elseif subtype == SUBTYPE_COLOR_SEQUENCE then
+		local count = bit32band(bit32rshift(second, 2), 31)
+		if length ~= 3 + count * 7 then return false, nil end
+		local keypoints = tableCreate(count) :: {ColorSequenceKeypoint}
+		local offset = 3
+		for index = 1, count do
+			keypoints[index] = ColorSequenceKeypoint.new(bufferReadF32(data, offset), Color3.fromRGB(bufferReadU8(data, offset + 4), bufferReadU8(data, offset + 5), bufferReadU8(data, offset + 6))); offset += 7
+		end
+		return true, ColorSequence.new(keypoints)
+	elseif subtype == SUBTYPE_BRICKCOLOR and length == 4 then
+		local number = bit32bor(bit32rshift(second, 2), bit32lshift(bit32band(bufferReadU8(data, 3), 15), 6))
+		return true, BrickColor.new(number)
+	elseif subtype == EXPANDED_SUBTYPE.AXES and length == 3 then
+		local mask = bit32band(bit32rshift(second, 2), 7)
+		local values, count = tableCreate(3), 0
+		if bit32band(mask, 1) ~= 0 then count += 1; values[count] = Enum.Axis.X end
+		if bit32band(mask, 2) ~= 0 then count += 1; values[count] = Enum.Axis.Y end
+		if bit32band(mask, 4) ~= 0 then count += 1; values[count] = Enum.Axis.Z end
+		return true, Axes.new(table.unpack(values, 1, count))
+	elseif subtype == EXPANDED_SUBTYPE.FACES and length == 3 then
+		local mask = bit32band(bit32rshift(second, 2), 63)
+		local values, count = tableCreate(6), 0
+		if bit32band(mask, 1) ~= 0 then count += 1; values[count] = Enum.NormalId.Right end
+		if bit32band(mask, 2) ~= 0 then count += 1; values[count] = Enum.NormalId.Top end
+		if bit32band(mask, 4) ~= 0 then count += 1; values[count] = Enum.NormalId.Back end
+		if bit32band(mask, 8) ~= 0 then count += 1; values[count] = Enum.NormalId.Left end
+		if bit32band(mask, 16) ~= 0 then count += 1; values[count] = Enum.NormalId.Bottom end
+		if bit32band(mask, 32) ~= 0 then count += 1; values[count] = Enum.NormalId.Front end
+		return true, Faces.new(table.unpack(values, 1, count))
+	elseif subtype == EXPANDED_SUBTYPE.RECT and length == 19 then
+		return true, Rect.new(Vector2.new(bufferReadF32(data, 3), bufferReadF32(data, 7)), Vector2.new(bufferReadF32(data, 11), bufferReadF32(data, 15)))
+	elseif subtype == EXPANDED_SUBTYPE.RAY and length == 27 then
+		return true, Ray.new(Vector3.new(bufferReadF32(data, 3), bufferReadF32(data, 7), bufferReadF32(data, 11)), Vector3.new(bufferReadF32(data, 15), bufferReadF32(data, 19), bufferReadF32(data, 23)))
+	elseif subtype == EXPANDED_SUBTYPE.NUMBER_KEYPOINT and length == 15 then
+		return true, NumberSequenceKeypoint.new(bufferReadF32(data, 3), bufferReadF32(data, 7), bufferReadF32(data, 11))
+	elseif subtype == EXPANDED_SUBTYPE.COLOR_KEYPOINT and length == 10 then
+		return true, ColorSequenceKeypoint.new(bufferReadF32(data, 3), Color3.fromRGB(bufferReadU8(data, 7), bufferReadU8(data, 8), bufferReadU8(data, 9)))
+	elseif subtype == EXPANDED_SUBTYPE.PHYSICAL and length == 23 then
+		return true, PhysicalProperties.new(bufferReadF32(data, 3), bufferReadF32(data, 7), bufferReadF32(data, 11), bufferReadF32(data, 15), bufferReadF32(data, 19))
+	elseif subtype == EXPANDED_SUBTYPE.REGION3 and length == 27 then
+		local center = Vector3.new(bufferReadF32(data, 3), bufferReadF32(data, 7), bufferReadF32(data, 11))
+		local size = Vector3.new(bufferReadF32(data, 15), bufferReadF32(data, 19), bufferReadF32(data, 23))
+		local half = size * 0.5
+		return true, Region3.new(center - half, center + half)
+	elseif subtype == EXPANDED_SUBTYPE.REGION3INT16 and length == 15 then
+		return true, Region3int16.new(
+			Vector3int16.new(bufferReadI16(data, 3), bufferReadI16(data, 5), bufferReadI16(data, 7)),
+			Vector3int16.new(bufferReadI16(data, 9), bufferReadI16(data, 11), bufferReadI16(data, 13))
+		)
+	end
+	return false, nil
+end
+
+function AutoRuntime.trySerializeNumericBooleanArray(value: any): buffer?
+	if type(value) ~= "table" or hasRegisteredConverter(value) or #value < 2 then return nil end
+	local kind, count, repeatCount, deltaMode = classifyTable(value)
+	if kind ~= KIND_NUM_ARRAY and kind ~= KIND_BOOL_ARRAY then return nil end
+	if kind == KIND_BOOL_ARRAY then
+		local widthCode, prefixSize = 0, 4
+		if count > 65535 then widthCode, prefixSize = 2, 7
+		elseif count > 255 then widthCode, prefixSize = 1, 5 end
+		local result = bufferCreate(prefixSize + mathCeil(count / 8))
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_BOOLEAN_ARRAY, 7), 5)))
+		bufferWriteU8(result, 2, bit32bor(bit32rshift(SUBTYPE_BOOLEAN_ARRAY, 3), bit32lshift(widthCode, 2)))
+		if widthCode == 0 then bufferWriteU8(result, 3, count)
+		elseif widthCode == 1 then bufferWriteU16(result, 3, count)
+		else bufferWriteU32(result, 3, count) end
+		local sourceIndex, offset = 1, prefixSize
+		while sourceIndex <= count do
+			local packed = 0
+			for bit = 0, 7 do
+				if sourceIndex > count then break end
+				if value[sourceIndex] then packed = bit32bor(packed, bit32lshift(1, bit)) end
+				sourceIndex += 1
+			end
+			bufferWriteU8(result, offset, packed); offset += 1
+		end
+		return result
+	end
+	if repeatCount == count - 1 and count <= 255 then
+		local encodedValue = AutoRuntime.trySerializePrimitive(value[1])
+		if encodedValue ~= nil then
+			local encodedLength = bufferLen(encodedValue) - 1
+			local result = bufferCreate(4 + encodedLength)
+			bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_ARRAY_RLE)
+			bufferWriteU8(result, 2, count); bufferWriteU8(result, 3, count)
+			bufferCopy(result, 4, encodedValue, 1, encodedLength)
+			return result
+		end
+	end
+
+	local writer = Writer.new(8 + count * 4)
+	writer._WriteU8(216)
+	if (repeatCount or 0) > count * Config.rleThreshold then
+		writer._WriteBits(TYPE_ARRAY_RLE, 5)
+		writeCountHeader(writer, count)
+		local index = 1
+		while index <= count do
+			local current = value[index]
+			local run = 1
+			while index + run <= count and value[index + run] == current do run += 1 end
+			local remaining = run
+			while remaining > 0 do
+				local chunk = mathMin(remaining, 255)
+				writer._WriteU8(chunk)
+				SerializeValue(writer, current)
+				remaining -= chunk
+			end
+			index += run
+		end
+	else
+		writer._WriteBits(TYPE_ARRAY_DELTA, 5)
+		writeCountHeader(writer, count)
+		SerializeValue(writer, value[1])
+		if deltaMode == "small" then
+			writer._WriteSmallDeltaArray(value, count)
+		else
+			for index = 2, count do
+				local delta = value[index] - value[index - 1]
+				if delta == 0 then writer._WriteBits(0, 2)
+				elseif delta % 1 == 0 and delta >= -7 and delta <= 7 then
+					writer._WriteBits(1, 2); writer._WriteBits(bit32band(delta + 7, 15), 4)
+				elseif delta % 1 == 0 and delta >= -128 and delta <= 127 then
+					writer._WriteBits(2, 2); writer._WriteI8(delta)
+				else writer._WriteBits(3, 2); SerializeValue(writer, value[index]) end
+			end
+		end
+	end
+	return writer._GetBuffer()
+end
+
+function AutoRuntime.tryDeserializeNumericBooleanArray(data: buffer): (boolean, any)
+	if bufferLen(data) < 3 then return false, nil end
+	local first = bufferReadU8(data, 1)
+	local tag = bit32band(first, 31)
+	local supported = tag == TYPE_ARRAY_DELTA or tag == TYPE_ARRAY_RLE
+	if tag == TYPE_ARRAY_RLE then
+		local widthCode = bit32band(bit32rshift(first, 5), 3)
+		local count, offset
+		if widthCode == 0 then count, offset = bufferReadU8(data, 2), 3
+		elseif widthCode == 1 and bufferLen(data) >= 4 then count, offset = bufferReadU16(data, 2), 4
+		elseif widthCode == 2 and bufferLen(data) >= 6 then count, offset = bufferReadU32(data, 2), 6
+		else return false, nil end
+		if count <= 255 and bufferLen(data) > offset + 1 and bufferReadU8(data, offset) == count then
+			local encodedLength = bufferLen(data) - offset - 1
+			local encodedValue = bufferCreate(encodedLength + 1)
+			bufferWriteU8(encodedValue, 0, 216)
+			bufferCopy(encodedValue, 1, data, offset + 1, encodedLength)
+			local decoded, value = AutoRuntime.tryDeserializePrimitive(encodedValue)
+			if decoded then return true, tableCreate(count, value) end
+		end
+	end
+	if tag == TYPE_SPECIAL then
+		local second = bufferReadU8(data, 2)
+		local subtype = bit32bor(bit32rshift(first, 5), bit32lshift(bit32band(second, 3), 3))
+		if subtype == SUBTYPE_BOOLEAN_ARRAY then
+			local widthCode = bit32band(bit32rshift(second, 2), 3)
+			local count, offset
+			if widthCode == 0 then count, offset = bufferReadU8(data, 3), 4
+			elseif widthCode == 1 and bufferLen(data) >= 5 then count, offset = bufferReadU16(data, 3), 5
+			elseif widthCode == 2 and bufferLen(data) >= 7 then count, offset = bufferReadU32(data, 3), 7
+			else return false, nil end
+			if Config.strictBoundsChecking and bufferLen(data) ~= offset + mathCeil(count / 8) then
+				error(`[Pancakes] Declared boolean array count {count} does not match the payload length`, 2)
+			end
+			if bufferLen(data) < offset + mathCeil(count / 8) then return false, nil end
+			local result = tableCreate(count) :: {boolean}
+			local targetIndex = 1
+			while targetIndex <= count do
+				local packed = bufferReadU8(data, offset); offset += 1
+				for bit = 0, 7 do
+					if targetIndex > count then break end
+					result[targetIndex] = bit32band(packed, bit32lshift(1, bit)) ~= 0
+					targetIndex += 1
+				end
+			end
+			return true, result
+		end
+		supported = false
+	end
+	if not supported then return false, nil end
+	AutoRuntime.beginDecode(data)
+	local reader = Reader.new(data)
+	reader._ReadU8()
+	local value = DeserializeValue(reader)
+	reader._Release()
+	return true, value
+end
+
+function AutoRuntime.trySerializePrimitive(value: any): buffer?
+	local valueType = typeofFn(value)
+	local tag: number
+	local size = 2
+
+	if valueType == "nil" then
+		tag = TYPE_NIL
+	elseif valueType == "boolean" then
+		tag = if value then TYPE_BOOLEAN_TRUE else TYPE_BOOLEAN_FALSE
+	elseif valueType == "number" then
+		if value == 0 then
+			tag = TYPE_NUMBER_ZERO
+		elseif value == 1 then
+			tag = TYPE_NUMBER_ONE
+		elseif value % 1 == 0 and value >= 2 and value <= 15 then
+			local result = bufferCreate(3)
+			bufferWriteU8(result, 0, 216)
+			bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(SUBTYPE_NUMBER_NIBBLE, 7), 5)))
+			bufferWriteU8(result, 2, bit32bor(bit32rshift(SUBTYPE_NUMBER_NIBBLE, 3), bit32lshift(value, 2)))
+			return result
+		elseif value % 1 == 0 and mathAbs(value) < 9007199254740992 then
+			if value >= -127 and value <= 127 then
+				tag, size = TYPE_NUMBER_I8, 3
+			elseif value >= -32768 and value <= 32767 then
+				tag, size = TYPE_NUMBER_I16, 4
+			elseif value >= 0 and value <= 4294967295 then
+				tag, size = TYPE_NUMBER_U32, 6
+			elseif value >= -2147483648 and value < 0 then
+				local encoded = bit32bxor(bit32lshift(value, 1), bit32arshift(value, 31))
+				local bytes, remaining = 1, encoded
+				while remaining >= 128 do bytes += 1; remaining = mathFloor(remaining / 128) end
+				local result = bufferCreate(2 + bytes)
+				bufferWriteU8(result, 0, 216); bufferWriteU8(result, 1, TYPE_NUMBER_ZIGZAG)
+				local offset = 2
+				while encoded >= 128 do
+					bufferWriteU8(result, offset, bit32bor(bit32band(encoded, 0x7F), 0x80))
+					offset += 1; encoded = mathFloor(encoded / 128)
+				end
+				bufferWriteU8(result, offset, encoded)
+				return result
+			else
+				tag, size = TYPE_NUMBER_F64, 10
+			end
+		elseif isExactF32(value) then
+			tag, size = TYPE_NUMBER_F32, 6
+		else
+			tag, size = TYPE_NUMBER_F64, 10
+		end
+	elseif valueType == "string" and COMMON_KEY_MAP[value] == nil then
+		local length = #value
+		if length == 0 then
+			tag = TYPE_STRING_EMPTY
+		elseif length <= 15 then
+			local result = bufferCreate(3 + length)
+			bufferWriteU8(result, 0, 216)
+			bufferWriteU8(result, 1, bit32bor(TYPE_STRING_TINY, bit32lshift(bit32band(length, 7), 5)))
+			bufferWriteU8(result, 2, bit32rshift(length, 3))
+			bufferWriteStr(result, 3, value)
+			return result
+		else
+			local prefixSize = if length < 255 then 3 else 7
+			local result = bufferCreate(prefixSize + length)
+			bufferWriteU8(result, 0, 216)
+			local encodedLength = if length < 255 then length else 255
+			bufferWriteU8(result, 1, bit32bor(TYPE_STRING_SHORT, bit32lshift(bit32band(encodedLength, 3), 6)))
+			bufferWriteU8(result, 2, bit32rshift(encodedLength, 2))
+			if length >= 255 then bufferWriteU32(result, 3, length) end
+			bufferWriteStr(result, prefixSize, value)
+			return result
+		end
+	elseif valueType == "buffer" then
+		local length = bufferLen(value)
+		local maxBytes = (Config :: any).maxBufferBytes or 16777216
+		if length > maxBytes then
+			error(`[Pancakes] Buffer length {length} exceeds maxBufferBytes ({maxBytes})`, 2)
+		end
+
+		local widthCode, prefixSize = 0, 4
+		if length > 65535 then widthCode, prefixSize = 2, 7
+		elseif length > 255 then widthCode, prefixSize = 1, 5 end
+		local result = bufferCreate(prefixSize + length)
+		bufferWriteU8(result, 0, 216)
+		bufferWriteU8(result, 1, bit32bor(TYPE_SPECIAL, bit32lshift(bit32band(EXPANDED_SUBTYPE.BUFFER, 7), 5)))
+		bufferWriteU8(result, 2, bit32bor(bit32rshift(EXPANDED_SUBTYPE.BUFFER, 3), bit32lshift(widthCode, 2)))
+		if widthCode == 0 then bufferWriteU8(result, 3, length)
+		elseif widthCode == 1 then bufferWriteU16(result, 3, length)
+		else bufferWriteU32(result, 3, length) end
+		bufferCopy(result, prefixSize, value, 0, length)
+		return result
+	else
+		return AutoRuntime.trySerializeFixedDatatype(value, valueType)
+	end
+
+	local result = bufferCreate(size)
+	bufferWriteU8(result, 0, 216)
+	bufferWriteU8(result, 1, tag)
+	if size == 3 then bufferWriteI8(result, 2, value)
+	elseif size == 4 then bufferWriteI16(result, 2, value)
+	elseif size == 6 and tag == TYPE_NUMBER_U32 then bufferWriteU32(result, 2, value)
+	elseif size == 6 then bufferWriteF32(result, 2, value)
+	elseif size == 10 then bufferWriteF64(result, 2, value) end
+	return result
+end
+
+function AutoRuntime.tryDeserializePrimitive(data: buffer): (boolean, any)
+	local length = bufferLen(data)
+	if length < 2 then return false, nil end
+	local first = bufferReadU8(data, 1)
+	local tag = bit32band(first, 31)
+	if length == 2 then
+		if tag == TYPE_NIL then return true, nil
+		elseif tag == TYPE_BOOLEAN_FALSE then return true, false
+		elseif tag == TYPE_BOOLEAN_TRUE then return true, true
+		elseif tag == TYPE_NUMBER_ZERO then return true, 0
+		elseif tag == TYPE_NUMBER_ONE then return true, 1
+		elseif tag == TYPE_STRING_EMPTY then return true, "" end
+	elseif tag == TYPE_NUMBER_I8 and length == 3 then
+		return true, bufferReadI8(data, 2)
+	elseif tag == TYPE_NUMBER_I16 and length == 4 then
+		return true, bufferReadI16(data, 2)
+	elseif tag == TYPE_NUMBER_U32 and length == 6 then
+		return true, bufferReadU32(data, 2)
+	elseif tag == TYPE_NUMBER_F32 and length == 6 then
+		return true, bufferReadF32(data, 2)
+	elseif tag == TYPE_NUMBER_F64 and length == 10 then
+		return true, bufferReadF64(data, 2)
+	elseif tag == TYPE_NUMBER_ZIGZAG and length >= 3 and length <= 7 then
+		local encoded, shift = 0, 0
+		for offset = 2, length - 1 do
+			local byte = bufferReadU8(data, offset)
+			encoded += bit32lshift(bit32band(byte, 0x7F), shift)
+			if bit32band(byte, 0x80) == 0 then
+				if offset ~= length - 1 then return false, nil end
+				local decoded = bit32bxor(bit32rshift(encoded, 1), -bit32band(encoded, 1))
+				if decoded >= 2147483648 then decoded -= 4294967296 end
+				return true, decoded
+			end
+			shift += 7
+		end
+	elseif tag == TYPE_SPECIAL and length == 3 then
+		local second = bufferReadU8(data, 2)
+		local subtype = bit32bor(bit32rshift(first, 5), bit32lshift(bit32band(second, 3), 3))
+		if subtype == SUBTYPE_NUMBER_NIBBLE then
+			return true, bit32band(bit32rshift(second, 2), 15)
+		end
+	elseif tag == TYPE_STRING_TINY and length >= 4 then
+		local second = bufferReadU8(data, 2)
+		local stringLength = bit32bor(bit32rshift(first, 5), bit32lshift(bit32band(second, 1), 3))
+		if length == stringLength + 3 then return true, bufferReadStr(data, 3, stringLength) end
+	elseif tag == TYPE_STRING_SHORT and bit32band(first, 32) == 0 and length >= 3 then
+		local encodedLength = bit32bor(bit32rshift(first, 6), bit32lshift(bufferReadU8(data, 2), 2))
+		local stringLength, offset = encodedLength, 3
+		if encodedLength == 255 then
+			if length < 7 then return false, nil end
+			stringLength, offset = bufferReadU32(data, 3), 7
+		end
+		if length == offset + stringLength then return true, bufferReadStr(data, offset, stringLength) end
+	elseif tag == TYPE_SPECIAL and length >= 4 then
+		local second = bufferReadU8(data, 2)
+		local subtype = bit32bor(bit32rshift(first, 5), bit32lshift(bit32band(second, 3), 3))
+		if subtype == EXPANDED_SUBTYPE.BUFFER then
+			local widthCode = bit32band(bit32rshift(second, 2), 3)
+			local valueLength, offset
+			if widthCode == 0 then valueLength, offset = bufferReadU8(data, 3), 4
+			elseif widthCode == 1 and length >= 5 then valueLength, offset = bufferReadU16(data, 3), 5
+			elseif widthCode == 2 and length >= 7 then valueLength, offset = bufferReadU32(data, 3), 7
+			else return false, nil end
+			local maxBytes = (Config :: any).maxBufferBytes or 16777216
+			if Config.strictBoundsChecking and valueLength > maxBytes then
+				error(`[Pancakes] Declared buffer length {valueLength} exceeds maxBufferBytes ({maxBytes})`, 2)
+			end
+			if length ~= offset + valueLength then return false, nil end
+			local result = bufferCreate(valueLength)
+			bufferCopy(result, 0, data, offset, valueLength)
+			return true, result
+		end
+	end
+	return AutoRuntime.tryDeserializeFixedDatatype(data)
+end
+
 function Pancakes.SerializeAuto(data: any): SerializedData
+	local primitive = AutoRuntime.trySerializePrimitive(data)
+	if primitive ~= nil then return primitive end
+	local homogeneous = AutoRuntime.trySerializeNumericBooleanArray(data)
+	if homogeneous ~= nil then return homogeneous end
 	local reused = tryReuseAutoLayoutSnapshot(data)
 	if reused ~= nil then return reused end
 	reused = AutoSnapshotRuntime.tryReuseGenericAuto(data)
@@ -5480,12 +6599,13 @@ function Pancakes.SerializeAuto(data: any): SerializedData
 	AutoRuntime.reset()
 	AutoRuntime.captureLayoutOffsets = AutoSnapshotRuntime.cooldowns[data] == nil
 	resetKeyArena()
-	
+
 	local writer = Writer.new(autoObservedSize)
 	writer._WriteU8(216)
 	if not serializeCachedAutoRoot(writer, data) then
 		SerializeValue(writer, data)
 	end
+
 	local result = writer._GetBuffer()
 	local size = bufferLen(result)
 	if size > autoObservedSize then
@@ -5533,6 +6653,7 @@ local function captureAutoDecodeSnapshot(buf: buffer, result: any): ()
 			end
 		end
 	end
+
 	local snapshotLayout = if directRecords or plan.layout == 0 then 3 else plan.layout
 	local snapshot: DecodeLayoutSnapshot = {
 		wire = bufferToString(buf),
@@ -5545,7 +6666,7 @@ local function captureAutoDecodeSnapshot(buf: buffer, result: any): ()
 		commonKeys = Config.commonKeys,
 		stringCacheMinLength = Config.stringCacheMinLength,
 	}
-	
+
 	snapshot.result = cloneDecodedLayout(snapshot)
 	local wireLength = bufferLen(buf)
 	if AutoSnapshotRuntime.decodes[wireLength] == nil then
@@ -5566,6 +6687,11 @@ function Pancakes.DeserializeAuto(buf: buffer): any
 	if wireLength == 0 or bufferReadU8(buf, 0) ~= 216 then
 		error("[Pancakes] Unsupported Auto wire revision; encode and decode with the same Pancakes build", 2)
 	end
+
+	local isPrimitive, primitive = AutoRuntime.tryDeserializePrimitive(buf)
+	if isPrimitive then return primitive end
+	local isHomogeneous, homogeneous = AutoRuntime.tryDeserializeNumericBooleanArray(buf)
+	if isHomogeneous then return homogeneous end
 	local snapshot = AutoSnapshotRuntime.decodes[wireLength]
 	if snapshot ~= nil then
 		if snapshot.commonKeys ~= Config.commonKeys
@@ -5611,6 +6737,7 @@ function Pancakes.CompareWithJSON(data: any): {
 	improvement:        number,
 	improvementPercent: number,
 	}
+
 	local jsonStr    = HttpService:JSONEncode(data)
 	local jsonSize   = #jsonStr
 	local serialized = Pancakes.Serialize(data)
@@ -5653,6 +6780,11 @@ export type SchemaFieldType =
 | "boolean" | "string"
 | "vector3" | "vector3int" | "vector2" | "vector2int"
 | "cframe" | "cframesimple" | "color3" | "udim" | "udim2" | "datetime"
+| "buffer" | "vector3int16" | "vector2int16" | "brickcolor"
+| "numberrange" | "numbersequence" | "colorsequence" | "instance"
+| "axes" | "faces" | "rect" | "ray"
+| "numbersequencekeypoint" | "colorsequencekeypoint" | "font"
+| "physicalproperties" | "region3" | "region3int16" | "tweeninfo" | "pathwaypoint"
 | "enum" | "directory" | "table" | "array" | "dictionary" | "auto" | "custom"
 
 export type SchemaField<T = any> = {
@@ -5703,6 +6835,26 @@ function Field.Color3(name: string): SchemaField<Color3> return makeField("color
 function Field.UDim(name: string): SchemaField<UDim> return makeField("udim", name) :: any end
 function Field.UDim2(name: string): SchemaField<UDim2> return makeField("udim2", name) :: any end
 function Field.DateTime(name: string): SchemaField<DateTime> return makeField("datetime", name) :: any end
+function Field.Buffer(name: string): SchemaField<buffer> return makeField("buffer", name) :: any end
+function Field.Vector3int16(name: string): SchemaField<Vector3int16> return makeField("vector3int16", name) :: any end
+function Field.Vector2int16(name: string): SchemaField<Vector2int16> return makeField("vector2int16", name) :: any end
+function Field.BrickColor(name: string): SchemaField<BrickColor> return makeField("brickcolor", name) :: any end
+function Field.NumberRange(name: string): SchemaField<NumberRange> return makeField("numberrange", name) :: any end
+function Field.NumberSequence(name: string): SchemaField<NumberSequence> return makeField("numbersequence", name) :: any end
+function Field.ColorSequence(name: string): SchemaField<ColorSequence> return makeField("colorsequence", name) :: any end
+function Field.Instance(name: string): SchemaField<Instance> return makeField("instance", name) :: any end
+function Field.Axes(name: string): SchemaField<Axes> return makeField("axes", name) :: any end
+function Field.Faces(name: string): SchemaField<Faces> return makeField("faces", name) :: any end
+function Field.Rect(name: string): SchemaField<Rect> return makeField("rect", name) :: any end
+function Field.Ray(name: string): SchemaField<Ray> return makeField("ray", name) :: any end
+function Field.NumberSequenceKeypoint(name: string): SchemaField<NumberSequenceKeypoint> return makeField("numbersequencekeypoint", name) :: any end
+function Field.ColorSequenceKeypoint(name: string): SchemaField<ColorSequenceKeypoint> return makeField("colorsequencekeypoint", name) :: any end
+function Field.Font(name: string): SchemaField<Font> return makeField("font", name) :: any end
+function Field.PhysicalProperties(name: string): SchemaField<PhysicalProperties> return makeField("physicalproperties", name) :: any end
+function Field.Region3(name: string): SchemaField<Region3> return makeField("region3", name) :: any end
+function Field.Region3int16(name: string): SchemaField<Region3int16> return makeField("region3int16", name) :: any end
+function Field.TweenInfo(name: string): SchemaField<TweenInfo> return makeField("tweeninfo", name) :: any end
+function Field.PathWaypoint(name: string): SchemaField<PathWaypoint> return makeField("pathwaypoint", name) :: any end
 function Field.Auto(name: string): SchemaField<any> return makeField("auto", name) :: any end
 
 function Field.Custom(name: string, classMetatable: {any}): SchemaField<any>
@@ -5770,7 +6922,9 @@ export type CompiledSchema = {
 	fastRead: SchemaRecordReadFn?,
 	staticPlan: StaticSchemaPlan?,
 	staticRootPlan: StaticSchemaRootPlan?,
+	singleField: SchemaFieldCodec?,
 }
+
 local schemaCache: {[Schema]: CompiledSchema} = setmetatable({}, {__mode = "k"}) :: {[Schema]: CompiledSchema}
 local schemaDecodeSnapshots = setmetatable({}, {__mode = "k"}) :: {[CompiledSchema]: DecodeLayoutSnapshot}
 local schemaEncodeSnapshots = setmetatable({}, {__mode = "k"})
@@ -5833,8 +6987,11 @@ end
 type SchemaCompiler = {
 	compileSchema: (schema: Schema) -> CompiledSchema,
 	getFieldCodec: (f: SchemaField) -> (WriteFn, ReadFn),
+	getExpandedFieldCodec: (f: SchemaField) -> (WriteFn, ReadFn),
 	writeStaticRootLayout1Buffer: (data: {[string]: any}, compiled: CompiledSchema, plan: StaticSchemaRootPlan, validate: boolean) -> buffer,
 	readStaticRootLayout1Buffer: (buf: buffer, compiled: CompiledSchema, plan: StaticSchemaRootPlan) -> {[string]: any},
+	tryWriteSingleFieldBuffer: (data: {[string]: any}, compiled: CompiledSchema) -> buffer?,
+	tryReadSingleFieldBuffer: (buf: buffer, compiled: CompiledSchema) -> {[string]: any}?,
 	writeSchemaFields: (writer: Writer, compiled: CompiledSchema, data: {[string]: any}) -> (),
 	writeSchemaFieldsUnchecked: (writer: Writer, compiled: CompiledSchema, data: {[string]: any}) -> (),
 	readSchemaFields: (reader: Reader, compiled: CompiledSchema) -> {[string]: any},
@@ -5844,11 +7001,7 @@ type SchemaCompiler = {
 
 local SchemaCompiler: SchemaCompiler = {} :: any
 
-function SchemaCompiler.writeStaticRootLayout1Buffer(
-	data: {[string]: any},
-	compiled: CompiledSchema,
-	plan: StaticSchemaRootPlan,
-	validate: boolean): buffer
+function SchemaCompiler.writeStaticRootLayout1Buffer(data: {[string]: any}, compiled: CompiledSchema, plan: StaticSchemaRootPlan, validate: boolean): buffer
 	local arrayKey, tailU16Key, tailU32Key = plan.arrayKey, plan.tailU16Key, plan.tailU32Key
 	local values, tailU16, tailU32 = data[arrayKey], data[tailU16Key], data[tailU32Key]
 	if validate and (values == nil or tailU16 == nil or tailU32 == nil) then
@@ -5885,6 +7038,7 @@ function SchemaCompiler.writeStaticRootLayout1Buffer(
 		bufferCopy(grown, 0, result, 0, offset)
 		result, capacity = grown, newCapacity
 	end
+
 	local headerIndex = 1
 	for _ = 1, headerBytes do
 		local packed = 0
@@ -5910,6 +7064,7 @@ function SchemaCompiler.writeStaticRootLayout1Buffer(
 			if value3 == nil then error(`[Pancakes] Required field "{key3}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
 			error(`[Pancakes] Required field "{key4}" is nil. Provide a value or wrap it with Field.Optional.`, 2)
 		end
+
 		local nested1, nested2, nested3 = nested[child1], nested[child2], nested[child3]
 		if validate and (nested1 == nil or nested2 == nil or nested3 == nil) then
 			if nested1 == nil then error(`[Pancakes] Required field "{child1}" is nil. Provide a value or wrap it with Field.Optional.`, 2) end
@@ -5965,15 +7120,13 @@ function SchemaCompiler.writeStaticRootLayout1Buffer(
 	if offset == capacity then
 		return result
 	end
+
 	local exact = bufferCreate(offset)
 	bufferCopy(exact, 0, result, 0, offset)
 	return exact
 end
 
-function SchemaCompiler.readStaticRootLayout1Buffer(
-	buf: buffer,
-	compiled: CompiledSchema,
-	plan: StaticSchemaRootPlan): {[string]: any}
+function SchemaCompiler.readStaticRootLayout1Buffer(buf: buffer, compiled: CompiledSchema, plan: StaticSchemaRootPlan): {[string]: any}
 	local version = bufferReadU32(buf, 0)
 	if version ~= compiled.version then
 		error(`[Pancakes] Schema version mismatch: buffer was written with schema version {version}, `
@@ -6023,6 +7176,7 @@ function SchemaCompiler.readStaticRootLayout1Buffer(
 			[key4] = {[child1] = nested1, [child2] = nested2, [child3] = nested3},
 		}
 	end
+
 	local tailU16 = bufferReadU8(buf, offset); offset += 1
 	if tailU16 == 255 then tailU16 = bufferReadU16(buf, offset); offset += 2 end
 	local tailU32 = bufferReadU32(buf, offset)
@@ -6086,6 +7240,7 @@ function SchemaCompiler.buildStaticSchemaPlan(fields: {SchemaFieldCodec}): Stati
 		and child.kinds[1] == 3 and child.kinds[2] == 3 and child.kinds[3] == 1 then
 		layout = 1
 	end
+
 	local statsChild, flagsChild = children[4], children[5]
 	if #headerKeys == 3 and not headerOptional[1] and not headerOptional[2] and not headerOptional[3]
 		and #valueKeys == 6
@@ -6112,13 +7267,12 @@ function SchemaCompiler.buildStaticSchemaPlan(fields: {SchemaFieldCodec}): Stati
 	}
 end
 
-function SchemaCompiler.buildFastSchemaPaths(
-	headerFields: {SchemaFieldCodec},
-	valueFields: {SchemaFieldCodec}): (SchemaRecordWriteFn?, SchemaRecordReadFn?)
+function SchemaCompiler.buildFastSchemaPaths(headerFields: {SchemaFieldCodec}, valueFields: {SchemaFieldCodec}): (SchemaRecordWriteFn?, SchemaRecordReadFn?)
 	local headerCount = #headerFields
 	if headerCount > 1 or (headerCount == 1 and headerFields[1].optional) then
 		return nil, nil
 	end
+
 	local headerName = headerCount == 1 and headerFields[1].name or nil
 	local valueCount = #valueFields
 	if valueCount > 7 then return nil, nil end
@@ -6272,6 +7426,354 @@ end
 
 local estimateFieldSize: (f: SchemaField<any>) -> number
 
+function SchemaCompiler.getExpandedFieldCodec(f: SchemaField): (WriteFn, ReadFn)
+	local t = f.type
+
+	if t == "buffer" then
+		local w: WriteFn = function(writer, value)
+			local len = bufferLen(value)
+			local maxBytes = (Config :: any).maxBufferBytes or 16777216
+			if len > maxBytes then
+				error(`[Pancakes] "{f.name}": buffer length {len} exceeds maxBufferBytes ({maxBytes})`, 2)
+			end
+			if len < 255 then
+				writer._WriteU8(len)
+			else
+				writer._WriteU8(255)
+				writer._WriteU32(len)
+			end
+			writer._WriteBufferRaw(value)
+		end
+
+		local r: ReadFn = function(reader)
+			local len = reader._ReadU8()
+			if len == 255 then len = reader._ReadU32() end
+			local maxBytes = (Config :: any).maxBufferBytes or 16777216
+			if Config.strictBoundsChecking and len > maxBytes then
+				error(`[Pancakes] "{f.name}": declared buffer length {len} exceeds maxBufferBytes ({maxBytes})`, 2)
+			end
+			return reader._ReadBufferRaw(len)
+		end
+		return w, r
+
+	elseif t == "vector3int16" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteI16(value.X); writer._WriteI16(value.Y); writer._WriteI16(value.Z)
+		end
+
+		local r: ReadFn = function(reader)
+			return Vector3int16.new(reader._ReadI16(), reader._ReadI16(), reader._ReadI16())
+		end
+		return w, r
+
+	elseif t == "vector2int16" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteI16(value.X); writer._WriteI16(value.Y)
+		end
+
+		local r: ReadFn = function(reader)
+			return Vector2int16.new(reader._ReadI16(), reader._ReadI16())
+		end
+		return w, r
+
+	elseif t == "brickcolor" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteBits(value.Number, 10)
+		end
+
+		local r: ReadFn = function(reader)
+			return BrickColor.new(reader._ReadBits(10))
+		end
+		return w, r
+
+	elseif t == "numberrange" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteF32(value.Min); writer._WriteF32(value.Max)
+		end
+
+		local r: ReadFn = function(reader)
+			return NumberRange.new(reader._ReadF32(), reader._ReadF32())
+		end
+		return w, r
+
+	elseif t == "numbersequence" then
+		local w: WriteFn = function(writer, value)
+			local keypoints = value.Keypoints
+			local count = #keypoints
+			local limit = (Config :: any).maxSequenceKeypoints or 31
+			if count > limit then
+				error(`[Pancakes] "{f.name}": NumberSequence has {count} keypoints; configured maximum is {limit}`, 2)
+			end
+			writer._WriteBits(count, 5)
+			for i = 1, count do
+				local keypoint = keypoints[i]
+				writer._WriteF32(keypoint.Time)
+				writer._WriteF32(keypoint.Value)
+				writer._WriteF32(keypoint.Envelope)
+			end
+		end
+
+		local r: ReadFn = function(reader)
+			local count = reader._ReadBits(5)
+			local keypoints = tableCreate(count) :: {NumberSequenceKeypoint}
+			for i = 1, count do
+				keypoints[i] = NumberSequenceKeypoint.new(
+					reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
+				)
+			end
+			return NumberSequence.new(keypoints)
+		end
+		return w, r
+
+	elseif t == "colorsequence" then
+		local w: WriteFn = function(writer, value)
+			local keypoints = value.Keypoints
+			local count = #keypoints
+			local limit = (Config :: any).maxSequenceKeypoints or 31
+			if count > limit then
+				error(`[Pancakes] "{f.name}": ColorSequence has {count} keypoints; configured maximum is {limit}`, 2)
+			end
+			writer._WriteBits(count, 5)
+			for i = 1, count do
+				local keypoint = keypoints[i]
+				local color = keypoint.Value
+				writer._WriteF32(keypoint.Time)
+				writer._WriteBits(mathClamp(mathRound(color.R * 255), 0, 255), 8)
+				writer._WriteBits(mathClamp(mathRound(color.G * 255), 0, 255), 8)
+				writer._WriteBits(mathClamp(mathRound(color.B * 255), 0, 255), 8)
+			end
+		end
+
+		local r: ReadFn = function(reader)
+			local count = reader._ReadBits(5)
+			local keypoints = tableCreate(count) :: {ColorSequenceKeypoint}
+			for i = 1, count do
+				keypoints[i] = ColorSequenceKeypoint.new(
+					reader._ReadF32(),
+					Color3.new(reader._ReadBits(8) / 255, reader._ReadBits(8) / 255, reader._ReadBits(8) / 255)
+				)
+			end
+			return ColorSequence.new(keypoints)
+		end
+		return w, r
+
+	elseif t == "instance" then
+		local w: WriteFn = function(writer, value)
+			local depth = 0
+			local maxDepth = (Config :: any).maxInstancePathDepth or 270
+			local current: Instance? = value
+			while current ~= nil and current ~= game do
+				depth += 1
+				if depth > maxDepth then
+					error(`[Pancakes] "{f.name}": Instance path exceeds maxInstancePathDepth ({maxDepth})`, 2)
+				end
+				INSTANCE_PATH_SCRATCH[depth] = current.Name
+				current = current.Parent
+			end
+			if current ~= game then
+				tableClear(INSTANCE_PATH_SCRATCH)
+				error(`[Pancakes] "{f.name}": Instance must be a descendant of game`, 2)
+			end
+			writer._WriteBits(mathMin(depth, 15), 4)
+			if depth >= 15 then writer._WriteU8(depth - 15) end
+			for i = depth, 1, -1 do
+				writer._WriteStringCached(INSTANCE_PATH_SCRATCH[i])
+				INSTANCE_PATH_SCRATCH[i] = nil
+			end
+		end
+
+		local r: ReadFn = function(reader)
+			local depth = reader._ReadBits(4)
+			if depth == 15 then depth += reader._ReadU8() end
+			local current: Instance = game
+			for _ = 1, depth do
+				local name = reader._ReadStringCached()
+				local child = current:FindFirstChild(name)
+				if child == nil then return nil end
+				current = child
+			end
+			return current
+		end
+		return w, r
+
+	elseif t == "axes" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteBits((if value.X then 1 else 0) + (if value.Y then 2 else 0)
+				+ (if value.Z then 4 else 0), 3)
+		end
+
+		local r: ReadFn = function(reader)
+			return AutoRuntime.readExpandedValue(reader, EXPANDED_SUBTYPE.AXES)
+		end
+		return w, r
+
+	elseif t == "faces" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteBits((if value.Right then 1 else 0) + (if value.Top then 2 else 0)
+				+ (if value.Back then 4 else 0) + (if value.Left then 8 else 0)
+				+ (if value.Bottom then 16 else 0) + (if value.Front then 32 else 0), 6)
+		end
+
+		local r: ReadFn = function(reader)
+			return AutoRuntime.readExpandedValue(reader, EXPANDED_SUBTYPE.FACES)
+		end
+		return w, r
+
+	elseif t == "rect" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteF32(value.Min.X); writer._WriteF32(value.Min.Y)
+			writer._WriteF32(value.Max.X); writer._WriteF32(value.Max.Y)
+		end
+
+		local r: ReadFn = function(reader)
+			return AutoRuntime.readExpandedValue(reader, EXPANDED_SUBTYPE.RECT)
+		end
+		return w, r
+
+	elseif t == "ray" then
+		local w: WriteFn = function(writer, value)
+			local origin, direction = value.Origin, value.Direction
+			writer._WriteF32(origin.X); writer._WriteF32(origin.Y); writer._WriteF32(origin.Z)
+			writer._WriteF32(direction.X); writer._WriteF32(direction.Y); writer._WriteF32(direction.Z)
+		end
+
+		local r: ReadFn = function(reader)
+			return AutoRuntime.readExpandedValue(reader, EXPANDED_SUBTYPE.RAY)
+		end
+		return w, r
+
+	elseif t == "numbersequencekeypoint" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteF32(value.Time); writer._WriteF32(value.Value); writer._WriteF32(value.Envelope)
+		end
+
+		local r: ReadFn = function(reader)
+			return NumberSequenceKeypoint.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+		end
+		return w, r
+
+	elseif t == "colorsequencekeypoint" then
+		local w: WriteFn = function(writer, value)
+			local color = value.Value
+			writer._WriteF32(value.Time)
+			writer._WriteU8(mathClamp(mathRound(color.R * 255), 0, 255))
+			writer._WriteU8(mathClamp(mathRound(color.G * 255), 0, 255))
+			writer._WriteU8(mathClamp(mathRound(color.B * 255), 0, 255))
+		end
+
+		local r: ReadFn = function(reader)
+			return ColorSequenceKeypoint.new(
+				reader._ReadF32(), Color3.fromRGB(reader._ReadU8(), reader._ReadU8(), reader._ReadU8())
+			)
+		end
+		return w, r
+
+	elseif t == "font" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteStringCached(value.Family)
+			writer._WriteStringCached(value.Weight.Name)
+			writer._WriteStringCached(value.Style.Name)
+		end
+
+		local r: ReadFn = function(reader)
+			local family = reader._ReadStringCached()
+			local weight = (Enum.FontWeight :: any)[reader._ReadStringCached()]
+			local style = (Enum.FontStyle :: any)[reader._ReadStringCached()]
+			if Config.strictBoundsChecking and (weight == nil or style == nil) then
+				error(`[Pancakes] "{f.name}": invalid Font enum value`, 2)
+			end
+			return Font.new(family, weight or Enum.FontWeight.Regular, style or Enum.FontStyle.Normal)
+		end
+		return w, r
+
+	elseif t == "physicalproperties" then
+		local w: WriteFn = function(writer, value)
+			writer._WriteF32(value.Density); writer._WriteF32(value.Friction)
+			writer._WriteF32(value.Elasticity); writer._WriteF32(value.FrictionWeight)
+			writer._WriteF32(value.ElasticityWeight)
+		end
+
+		local r: ReadFn = function(reader)
+			return PhysicalProperties.new(
+				reader._ReadF32(), reader._ReadF32(), reader._ReadF32(),
+				reader._ReadF32(), reader._ReadF32()
+			)
+		end
+		return w, r
+
+	elseif t == "region3" then
+		local w: WriteFn = function(writer, value)
+			local center, size = value.CFrame.Position, value.Size
+			writer._WriteF32(center.X); writer._WriteF32(center.Y); writer._WriteF32(center.Z)
+			writer._WriteF32(size.X); writer._WriteF32(size.Y); writer._WriteF32(size.Z)
+		end
+
+		local r: ReadFn = function(reader)
+			local center = Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+			local size = Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+			local half = size * 0.5
+			return Region3.new(center - half, center + half)
+		end
+		return w, r
+
+	elseif t == "region3int16" then
+		local w: WriteFn = function(writer, value)
+			local minimum, maximum = value.Min, value.Max
+			writer._WriteI16(minimum.X); writer._WriteI16(minimum.Y); writer._WriteI16(minimum.Z)
+			writer._WriteI16(maximum.X); writer._WriteI16(maximum.Y); writer._WriteI16(maximum.Z)
+		end
+
+		local r: ReadFn = function(reader)
+			return Region3int16.new(
+				Vector3int16.new(reader._ReadI16(), reader._ReadI16(), reader._ReadI16()),
+				Vector3int16.new(reader._ReadI16(), reader._ReadI16(), reader._ReadI16())
+			)
+		end
+		return w, r
+
+	elseif t == "tweeninfo" then
+		local styleLookup = getEnumValueLookup("EasingStyle")
+		local directionLookup = getEnumValueLookup("EasingDirection")
+		local w: WriteFn = function(writer, value)
+			writer._WriteF32(value.Time); writer._WriteU8(value.EasingStyle.Value)
+			writer._WriteU8(value.EasingDirection.Value); writer._WriteZigZag(value.RepeatCount)
+			writer._WriteBits(value.Reverses and 1 or 0, 1); writer._WriteF32(value.DelayTime)
+		end
+
+		local r: ReadFn = function(reader)
+			local time = reader._ReadF32()
+			local style = styleLookup and styleLookup[reader._ReadU8()]
+			local direction = directionLookup and directionLookup[reader._ReadU8()]
+			if Config.strictBoundsChecking and (style == nil or direction == nil) then
+				error(`[Pancakes] "{f.name}": invalid TweenInfo enum value`, 2)
+			end
+			return TweenInfo.new(time, style or Enum.EasingStyle.Linear, direction or Enum.EasingDirection.Out,
+				reader._ReadZigZag(), reader._ReadBits(1) == 1, reader._ReadF32())
+		end
+		return w, r
+
+	elseif t == "pathwaypoint" then
+		local actionLookup = getEnumValueLookup("PathWaypointAction")
+		local w: WriteFn = function(writer, value)
+			local position = value.Position
+			writer._WriteF32(position.X); writer._WriteF32(position.Y); writer._WriteF32(position.Z)
+			writer._WriteU8(value.Action.Value); writer._WriteStringCached(value.Label)
+		end
+
+		local r: ReadFn = function(reader)
+			local position = Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
+			local action = actionLookup and actionLookup[reader._ReadU8()]
+			if Config.strictBoundsChecking and action == nil then
+				error(`[Pancakes] "{f.name}": invalid PathWaypoint action`, 2)
+			end
+			return PathWaypoint.new(position, action or Enum.PathWaypointAction.Walk, reader._ReadStringCached())
+		end
+		return w, r
+	end
+
+	error(`[Pancakes] Unknown schema field type: {tostring(t)}`, 2)
+end
+
 function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 	local t = f.type
 
@@ -6291,6 +7793,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 				if v < 255 then writer._WriteU8(v) else writer._WriteU8(255); writer._WriteU16(v) end
 			else writer._WriteU16(v) end
 		end
+
 		local r: ReadFn  = function(reader)
 			if AutoRuntime.schemaCompactWire then
 				local value = reader._ReadU8()
@@ -6344,6 +7847,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		local w: WriteFn = function(writer, v)
 			writer._WriteBits(v and 1 or 0, 1)
 		end
+
 		local r: ReadFn = function(reader)
 			return reader._ReadBits(1) == 1
 		end
@@ -6363,6 +7867,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			end
 			writer._WriteStringRaw(v)
 		end
+
 		local r: ReadFn = function(reader)
 			local len: number
 			if AutoRuntime.schemaCompactWire then
@@ -6380,6 +7885,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		local w: WriteFn = function(writer, v)
 			writer._WriteF32(v.X); writer._WriteF32(v.Y); writer._WriteF32(v.Z)
 		end
+
 		local r: ReadFn = function(reader)
 			return Vector3.new(reader._ReadF32(), reader._ReadF32(), reader._ReadF32())
 		end
@@ -6389,6 +7895,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		local w: WriteFn = function(writer, v)
 			writer._WriteI16(v.X); writer._WriteI16(v.Y); writer._WriteI16(v.Z)
 		end
+
 		local r: ReadFn = function(reader)
 			return Vector3.new(reader._ReadI16(), reader._ReadI16(), reader._ReadI16())
 		end
@@ -6398,6 +7905,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		local w: WriteFn = function(writer, v)
 			writer._WriteF32(v.X); writer._WriteF32(v.Y)
 		end
+
 		local r: ReadFn = function(reader)
 			return Vector2.new(reader._ReadF32(), reader._ReadF32())
 		end
@@ -6407,6 +7915,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		local w: WriteFn = function(writer, v)
 			writer._WriteI16(v.X); writer._WriteI16(v.Y)
 		end
+
 		local r: ReadFn = function(reader)
 			return Vector2.new(reader._ReadI16(), reader._ReadI16())
 		end
@@ -6418,19 +7927,21 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			if not v.GetComponents then
 				s = CFrame.new(v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12])
 			end
+
 			local px, py, pz = s.X, s.Y, s.Z
-			local _, _, _, r00,r01,r02, r10,r11,r12, r20,r21,r22 = s:GetComponents()
+			local _, _, _, r00, r01, r02, r10, r11, r12, r20, r21, r22 = s:GetComponents()
 			writer._WriteF32(px); writer._WriteF32(py); writer._WriteF32(pz)
 			writer._WriteF32(r00); writer._WriteF32(r01); writer._WriteF32(r02)
 			writer._WriteF32(r10); writer._WriteF32(r11); writer._WriteF32(r12)
 			writer._WriteF32(r20); writer._WriteF32(r21); writer._WriteF32(r22)
 		end
+
 		local r: ReadFn = function(reader)
 			local px, py, pz  = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
-			local r00,r01,r02 = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
-			local r10,r11,r12 = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
-			local r20,r21,r22 = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
-			return CFrame.new(px,py,pz, r00,r01,r02, r10,r11,r12, r20,r21,r22)
+			local r00, r01, r02 = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
+			local r10, r11, r12 = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
+			local r20, r21, r22 = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
+			return CFrame.new(px, py, pz, r00, r01, r02, r10, r11, r12, r20, r21, r22)
 		end
 		return w, r
 
@@ -6440,10 +7951,11 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			writer._WriteF32(pos.X); writer._WriteF32(pos.Y); writer._WriteF32(pos.Z)
 			writer._WriteF32(lv.X);  writer._WriteF32(lv.Y);  writer._WriteF32(lv.Z)
 		end
+
 		local r: ReadFn = function(reader)
 			local px, py, pz = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
 			local lx, ly, lz = reader._ReadF32(), reader._ReadF32(), reader._ReadF32()
-			return CFrame.lookAt(Vector3.new(px,py,pz), Vector3.new(px+lx, py+ly, pz+lz))
+			return CFrame.lookAt(Vector3.new(px, py, pz), Vector3.new(px + lx, py + ly, pz + lz))
 		end
 		return w, r
 
@@ -6454,9 +7966,10 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			writer._WriteU8(mathClamp(mathRound(v.G * 255), 0, 255))
 			writer._WriteU8(mathClamp(mathRound(v.B * 255), 0, 255))
 		end
+
 		local r: ReadFn = function(reader)
 			reader._FlushBits()
-			return Color3.new(reader._ReadU8()/255, reader._ReadU8()/255, reader._ReadU8()/255)
+			return Color3.new(reader._ReadU8() / 255, reader._ReadU8() / 255, reader._ReadU8() / 255)
 		end
 		return w, r
 
@@ -6464,6 +7977,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		local w: WriteFn = function(writer, v)
 			writer._WriteF32(v.Scale); writer._WriteI16(v.Offset)
 		end
+
 		local r: ReadFn = function(reader)
 			return UDim.new(reader._ReadF32(), reader._ReadI16())
 		end
@@ -6474,6 +7988,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			writer._WriteF32(v.X.Scale); writer._WriteI16(v.X.Offset)
 			writer._WriteF32(v.Y.Scale); writer._WriteI16(v.Y.Offset)
 		end
+
 		local r: ReadFn = function(reader)
 			return UDim2.new(reader._ReadF32(), reader._ReadI16(), reader._ReadF32(), reader._ReadI16())
 		end
@@ -6483,6 +7998,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		local w: WriteFn = function(writer, v)
 			writer._WriteVarint(v.UnixTimestampMillis)
 		end
+
 		local r: ReadFn = function(reader)
 			return DateTime.fromUnixTimestampMillis(reader._ReadVarint())
 		end
@@ -6493,10 +8009,12 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		if not enumTypeName then
 			error(`[Pancakes] "{f.name}" is type "enum" but has no enumType (use Field.Enum(name, enumType))`)
 		end
+
 		local enumType = (Enum :: any)[enumTypeName]
 		if not enumType then
 			error(`[Pancakes] Unknown enum type: {enumTypeName}`)
 		end
+
 		local cachedLookup = getEnumValueLookup(enumTypeName)
 
 		local w: WriteFn = function(writer, v)
@@ -6509,12 +8027,14 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 				writer._WriteU8(255); writer._WriteU16(65535); writer._WriteU32(ev)
 			end
 		end
+
 		local r: ReadFn = function(reader)
 			local ev = reader._ReadU8()
 			if ev == 255 then
 				local nxt = reader._ReadU16()
 				ev = nxt == 65535 and reader._ReadU32() or nxt
 			end
+
 			local item = cachedLookup and cachedLookup[ev]
 			if Config.strictBoundsChecking and item == nil then
 				error(`[Pancakes] "{f.name}": unknown value {ev} for enum type {enumTypeName}`, 2)
@@ -6545,6 +8065,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			end
 			writer._WriteU16(id)
 		end
+
 		local r: ReadFn = function(reader)
 			local dir  = resolveDirectory()
 			local id   = reader._ReadU16()
@@ -6562,6 +8083,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		if not sub then
 			error(`[Pancakes] "{f.name}" is type "table" but has no schema (use Field.Table(name, subSchema))`)
 		end
+
 		local compiled = SchemaCompiler.compileSchema(sub)
 		local fastWrite = compiled.fastWrite
 		local fastRead = compiled.fastRead
@@ -6573,6 +8095,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 				SchemaCompiler.writeSchemaFieldsUnchecked(writer, compiled, v)
 			end
 		end
+
 		local r: ReadFn = function(reader)
 			if fastRead ~= nil then return fastRead(reader) end
 			return SchemaCompiler.readSchemaFields(reader, compiled)
@@ -6593,6 +8116,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 				elseif n < 65535 then writer._WriteU16(n) else writer._WriteU16(65535); writer._WriteU32(n) end
 				writer._WriteU16Array(arr, n)
 			end
+
 			local r: ReadFn = function(reader)
 				local n: number
 				if AutoRuntime.schemaCompactWire then n = reader._ReadU8(); if n == 255 then n = reader._ReadU32() end
@@ -6611,6 +8135,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 				elseif n < 65535 then writer._WriteU16(n) else writer._WriteU16(65535); writer._WriteU32(n) end
 				writer._WriteBooleanArray(arr, n)
 			end
+
 			local r: ReadFn = function(reader)
 				local n: number
 				if AutoRuntime.schemaCompactWire then n = reader._ReadU8(); if n == 255 then n = reader._ReadU32() end
@@ -6622,11 +8147,13 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			end
 			return w, r
 		end
+
 		local elemWrite, elemRead = SchemaCompiler.getFieldCodec(elem)
 		local elementRecord: CompiledSchema? = nil
 		if elem.type == "table" and elem.schema ~= nil then
 			elementRecord = SchemaCompiler.compileSchema(elem.schema)
 		end
+
 		local elementFastWrite = elementRecord and elementRecord.fastWrite or nil
 		local elementFastRead = elementRecord and elementRecord.fastRead or nil
 		local elementStaticPlan = elementRecord and elementRecord.staticPlan or nil
@@ -6650,6 +8177,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 				for i = 1, n do elemWrite(writer, arr[i]) end
 			end
 		end
+
 		local r: ReadFn = function(reader)
 			local n: number
 			if AutoRuntime.schemaCompactWire then n = reader._ReadU8(); if n == 255 then n = reader._ReadU32() end
@@ -6662,6 +8190,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			if elementStaticPlan ~= nil then
 				return reader._ReadStaticSchemaArray(n, elementStaticPlan)
 			end
+
 			local arr = tableCreate(n)
 			if elementFastRead ~= nil then
 				for i = 1, n do arr[i] = elementFastRead(reader) end
@@ -6677,6 +8206,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		if not valueField then
 			error(`[Pancakes] "{f.name}" is type "dictionary" but has no value field (use Field.Dictionary(name, valueField))`)
 		end
+
 		local keyType = f.keyType or "string"
 		local valWrite, valRead = SchemaCompiler.getFieldCodec(valueField)
 		local keyWrite: (writer: Writer, key: string) -> ()
@@ -6736,6 +8266,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 				valWrite(writer, v)
 			end
 		end
+
 		local r: ReadFn = function(reader: Reader): any
 			local n: number
 			if AutoRuntime.schemaCompactWire then n = reader._ReadU8(); if n == 255 then n = reader._ReadU32() end
@@ -6743,6 +8274,7 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 			if Config.strictBoundsChecking and n > AutoRuntime.decodeBitBudget then
 				error(`[Pancakes] "{f.name}": declared dictionary length {n} exceeds the decode safety budget ({AutoRuntime.decodeBitBudget} bits)`, 2)
 			end
+
 			local dict: {[any]: any} = {}
 			for _ = 1, n do
 				local k = keyRead(reader)
@@ -6763,17 +8295,19 @@ function SchemaCompiler.getFieldCodec(f: SchemaField): (WriteFn, ReadFn)
 		if not classMetatable then
 			error(`[Pancakes] "{f.name}" is type "custom" but has no customMetatable (use Field.Custom(name, classMetatable))`)
 		end
+
 		local converter = converterByMetatable[classMetatable]
 		if not converter then
 			error(`[Pancakes] "{f.name}": no converter registered for this class/metatable. `
 				.. `Call Pancakes.RegisterConverter(YourClass, writeFn, readFn) before compiling this schema.`)
 		end
+
 		local w: WriteFn = converter.write
 		local r: ReadFn  = converter.read
 		return w, r
 
 	else
-		error(`[Pancakes] Unknown schema field type: {tostring(t)}`)
+		return SchemaCompiler.getExpandedFieldCodec(f)
 	end
 end
 
@@ -6787,10 +8321,17 @@ local FIXED_FIELD_BYTE_SIZE: {[string]: number} = {
 	vector3int = 6,
 	udim = 6, udim2 = 12,
 	color3 = 3,
+	vector2int16 = 4, vector3int16 = 6,
+	brickcolor = 2, numberrange = 8,
+	axes = 1, faces = 1, rect = 16, ray = 24,
+	numbersequencekeypoint = 12, colorsequencekeypoint = 7,
+	physicalproperties = 20, region3 = 24, region3int16 = 12,
+	tweeninfo = 12,
 	enum = 2,
 	directory = 2,
 	datetime = 8,
 }
+
 local DEFAULT_VARIABLE_FIELD_SIZE = 24
 
 estimateFieldSize = function(f: SchemaField<any>): number
@@ -6823,7 +8364,7 @@ end
 
 local function fieldTouchesStringCache(f: SchemaField<any>): boolean
 	local t = f.type
-	if t == "auto" or t == "custom" then
+	if t == "auto" or t == "custom" or t == "instance" or t == "font" or t == "pathwaypoint" then
 		return true
 	end
 	if t == "dictionary" then
@@ -6891,6 +8432,7 @@ function SchemaCompiler.compileSchema(schema: Schema): CompiledSchema
 		if fieldTouchesKeyArena(f) then
 			usesKeyArena = true
 		end
+
 		local codec: SchemaFieldCodec = {
 			name     = f.name,
 			optional = isOptional,
@@ -6930,6 +8472,7 @@ function SchemaCompiler.compileSchema(schema: Schema): CompiledSchema
 			end
 		end
 	end
+
 	local compiled: CompiledSchema = {
 		fields = fields,
 		headerFields = headerFields,
@@ -6945,6 +8488,7 @@ function SchemaCompiler.compileSchema(schema: Schema): CompiledSchema
 		fastRead = fastRead,
 		staticPlan = staticPlan,
 		staticRootPlan = staticRootPlan,
+		singleField = if #fields == 1 and not fields[1].optional then fields[1] else nil,
 	}
 	schemaCache[schema] = compiled
 	return compiled
@@ -7017,6 +8561,7 @@ function SchemaCompiler.readSchemaFields(reader: Reader, compiled: CompiledSchem
 	if compiled.fastRead ~= nil then
 		return compiled.fastRead(reader)
 	end
+
 	local fields = compiled.fields
 
 	if not compiled.hasHeaderBits then
@@ -7069,10 +8614,7 @@ local function rejectSchemaEncodeSnapshot(snapshot: SchemaEncodeLayoutSnapshot):
 	return nil
 end
 
-local function tryReuseSchemaEncodeSnapshot(
-	data: {[string]: any},
-	compiled: CompiledSchema,
-	plan: StaticSchemaRootPlan): buffer?
+local function tryReuseSchemaEncodeSnapshot(data: {[string]: any}, compiled: CompiledSchema, plan: StaticSchemaRootPlan): buffer?
 	local snapshots = schemaEncodeSnapshots[compiled]
 	if snapshots == nil then return nil end
 	local snapshot = snapshots[data]
@@ -7125,6 +8667,7 @@ local function tryReuseSchemaEncodeSnapshot(
 				or (nested2 < 255) ~= (flat[base + 6] < 255) then
 				return rejectSchemaEncodeSnapshot(snapshot)
 			end
+
 			local patchBase = (i - 1) * 6
 			if header ~= flat[base + 1] then
 				local byteOffset = headerOffset + mathFloor((i - 1) / 8)
@@ -7172,11 +8715,7 @@ local function tryReuseSchemaEncodeSnapshot(
 	return cloneBuffer(encoded)
 end
 
-local function captureSchemaEncodeSnapshot(
-	data: {[string]: any},
-	compiled: CompiledSchema,
-	plan: StaticSchemaRootPlan,
-	encoded: buffer): ()
+local function captureSchemaEncodeSnapshot(data: {[string]: any}, compiled: CompiledSchema, plan: StaticSchemaRootPlan, encoded: buffer): ()
 	local snapshots = schemaEncodeSnapshots[compiled]
 	if snapshots == nil then
 		snapshots = setmetatable({}, {__mode = "k"}) :: {[any]: SchemaEncodeLayoutSnapshot}
@@ -7231,6 +8770,7 @@ local function captureSchemaEncodeSnapshot(
 		patchOffsets[patchBase + 6] = offset
 		offset += 1
 	end
+
 	local tailU16 = data[plan.tailU16Key]
 	local tailU32Offset = offset + (if tailU16 < 255 then 1 else 3)
 	snapshots[data] = {
@@ -7247,9 +8787,166 @@ local function captureSchemaEncodeSnapshot(
 	}
 end
 
+function SchemaCompiler.tryWriteSingleFieldBuffer(data: {[string]: any}, compiled: CompiledSchema): buffer?
+	local field = compiled.singleField
+	if field == nil then return nil end
+	local name, fieldType = field.name, field.type
+	local value = data[name]
+	if Config.schemaValidationEnabled and value == nil then
+		error(`[Pancakes] Required field "{name}" is nil. Provide a value or wrap it with Field.Optional.`, 2)
+	end
+	if value == nil then return nil end
+
+	local result: buffer
+	if fieldType == "u8" or fieldType == "i8" or fieldType == "boolean" then
+		result = bufferCreate(5); bufferWriteU32(result, 0, compiled.version)
+		if fieldType == "u8" then bufferWriteU8(result, 4, value)
+		elseif fieldType == "i8" then bufferWriteI8(result, 4, value)
+		else bufferWriteU8(result, 4, value and 1 or 0) end
+		return result
+	elseif fieldType == "u16" then
+		if value < 255 then result = bufferCreate(5); bufferWriteU32(result, 0, compiled.version); bufferWriteU8(result, 4, value)
+		else result = bufferCreate(7); bufferWriteU32(result, 0, compiled.version); bufferWriteU8(result, 4, 255); bufferWriteU16(result, 5, value) end
+		return result
+	elseif fieldType == "i16" then
+		result = bufferCreate(6); bufferWriteU32(result, 0, compiled.version); bufferWriteI16(result, 4, value); return result
+	elseif fieldType == "u32" then
+		result = bufferCreate(8); bufferWriteU32(result, 0, compiled.version); bufferWriteU32(result, 4, value); return result
+	elseif fieldType == "f32" then
+		result = bufferCreate(8); bufferWriteU32(result, 0, compiled.version); bufferWriteF32(result, 4, value); return result
+	elseif fieldType == "f64" then
+		result = bufferCreate(12); bufferWriteU32(result, 0, compiled.version); bufferWriteF64(result, 4, value); return result
+	elseif fieldType == "u64" or fieldType == "i64" then
+		local encoded = if fieldType == "i64" then (if value >= 0 then value * 2 else - value * 2 - 1) else value
+		if encoded < 0 or encoded > 9007199254740991 then return nil end
+		result = bufferCreate(12); bufferWriteU32(result, 0, compiled.version)
+		bufferWriteU32(result, 4, encoded % 4294967296); bufferWriteU32(result, 8, mathFloor(encoded / 4294967296))
+		return result
+	elseif fieldType == "i32" then
+		local encoded = bit32bxor(bit32lshift(value, 1), bit32arshift(value, 31))
+		local bytes, remaining = 1, encoded
+		while remaining >= 128 do bytes += 1; remaining = mathFloor(remaining / 128) end
+		result = bufferCreate(4 + bytes); bufferWriteU32(result, 0, compiled.version)
+		local offset = 4
+		while encoded >= 128 do bufferWriteU8(result, offset, bit32bor(bit32band(encoded, 127), 128)); offset += 1; encoded = mathFloor(encoded / 128) end
+		bufferWriteU8(result, offset, encoded)
+		return result
+	elseif fieldType == "string" then
+		local length = #value
+		local prefix = if length < 255 then 1 else 5
+		result = bufferCreate(4 + prefix + length); bufferWriteU32(result, 0, compiled.version)
+		if length < 255 then bufferWriteU8(result, 4, length)
+		else bufferWriteU8(result, 4, 255); bufferWriteU32(result, 5, length) end
+		bufferWriteStr(result, 4 + prefix, value)
+		return result
+	elseif fieldType == "buffer" then
+		local length = bufferLen(value)
+		local maxBytes = (Config :: any).maxBufferBytes or 16777216
+		if length > maxBytes then error(`[Pancakes] "{name}": buffer length {length} exceeds maxBufferBytes ({maxBytes})`, 2) end
+		local prefix = if length < 255 then 1 else 5
+		result = bufferCreate(4 + prefix + length); bufferWriteU32(result, 0, compiled.version)
+		if length < 255 then bufferWriteU8(result, 4, length)
+		else bufferWriteU8(result, 4, 255); bufferWriteU32(result, 5, length) end
+		bufferCopy(result, 4 + prefix, value, 0, length)
+		return result
+	elseif fieldType == "vector2" or fieldType == "vector2int" then
+		local integer = fieldType == "vector2int"
+		result = bufferCreate(if integer then 8 else 12); bufferWriteU32(result, 0, compiled.version)
+		if integer then bufferWriteI16(result, 4, value.X); bufferWriteI16(result, 6, value.Y)
+		else bufferWriteF32(result, 4, value.X); bufferWriteF32(result, 8, value.Y) end
+		return result
+	elseif fieldType == "vector3" or fieldType == "vector3int" then
+		local integer = fieldType == "vector3int"
+		result = bufferCreate(if integer then 10 else 16); bufferWriteU32(result, 0, compiled.version)
+		if integer then bufferWriteI16(result, 4, value.X); bufferWriteI16(result, 6, value.Y); bufferWriteI16(result, 8, value.Z)
+		else bufferWriteF32(result, 4, value.X); bufferWriteF32(result, 8, value.Y); bufferWriteF32(result, 12, value.Z) end
+		return result
+	elseif fieldType == "color3" then
+		result = bufferCreate(7); bufferWriteU32(result, 0, compiled.version)
+		bufferWriteU8(result, 4, mathClamp(mathRound(value.R * 255), 0, 255)); bufferWriteU8(result, 5, mathClamp(mathRound(value.G * 255), 0, 255)); bufferWriteU8(result, 6, mathClamp(mathRound(value.B * 255), 0, 255))
+		return result
+	elseif fieldType == "udim" then
+		result = bufferCreate(10); bufferWriteU32(result, 0, compiled.version); bufferWriteF32(result, 4, value.Scale); bufferWriteI16(result, 8, value.Offset); return result
+	elseif fieldType == "udim2" then
+		result = bufferCreate(16); bufferWriteU32(result, 0, compiled.version)
+		bufferWriteF32(result, 4, value.X.Scale); bufferWriteI16(result, 8, value.X.Offset); bufferWriteF32(result, 10, value.Y.Scale); bufferWriteI16(result, 14, value.Y.Offset)
+		return result
+	elseif fieldType == "cframe" or fieldType == "cframesimple" then
+		if fieldType == "cframesimple" then
+			local position, look = value.Position, value.LookVector
+			result = bufferCreate(28); bufferWriteU32(result, 0, compiled.version)
+			bufferWriteF32(result, 4, position.X); bufferWriteF32(result, 8, position.Y); bufferWriteF32(result, 12, position.Z)
+			bufferWriteF32(result, 16, look.X); bufferWriteF32(result, 20, look.Y); bufferWriteF32(result, 24, look.Z)
+			return result
+		end
+		if typeofFn(value) ~= "CFrame" then return nil end
+		result = bufferCreate(52); bufferWriteU32(result, 0, compiled.version)
+		local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = value:GetComponents()
+		bufferWriteF32(result, 4, x); bufferWriteF32(result, 8, y); bufferWriteF32(result, 12, z)
+		bufferWriteF32(result, 16, r00); bufferWriteF32(result, 20, r01); bufferWriteF32(result, 24, r02)
+		bufferWriteF32(result, 28, r10); bufferWriteF32(result, 32, r11); bufferWriteF32(result, 36, r12)
+		bufferWriteF32(result, 40, r20); bufferWriteF32(result, 44, r21); bufferWriteF32(result, 48, r22)
+		return result
+	end
+	return nil
+end
+
+function SchemaCompiler.tryReadSingleFieldBuffer(buf: buffer, compiled: CompiledSchema): {[string]: any}?
+	local field = compiled.singleField
+	if field == nil or bufferLen(buf) < 5 or bufferReadU32(buf, 0) ~= compiled.version then return nil end
+	local name, fieldType, length = field.name, field.type, bufferLen(buf)
+	if fieldType == "u8" and length == 5 then return {[name] = bufferReadU8(buf, 4)}
+	elseif fieldType == "i8" and length == 5 then return {[name] = bufferReadI8(buf, 4)}
+	elseif fieldType == "boolean" and length == 5 then return {[name] = bit32band(bufferReadU8(buf, 4), 1) == 1}
+	elseif fieldType == "u16" then
+		local marker = bufferReadU8(buf, 4)
+		if marker < 255 and length == 5 then return {[name] = marker}
+		elseif marker == 255 and length == 7 then return {[name] = bufferReadU16(buf, 5)} end
+	elseif fieldType == "i16" and length == 6 then return {[name] = bufferReadI16(buf, 4)}
+	elseif fieldType == "u32" and length == 8 then return {[name] = bufferReadU32(buf, 4)}
+	elseif fieldType == "f32" and length == 8 then return {[name] = bufferReadF32(buf, 4)}
+	elseif fieldType == "f64" and length == 12 then return {[name] = bufferReadF64(buf, 4)}
+	elseif (fieldType == "u64" or fieldType == "i64") and length == 12 then
+		local encoded = bufferReadU32(buf, 8) * 4294967296 + bufferReadU32(buf, 4)
+		return {[name] = if fieldType == "i64" then (if encoded % 2 == 0 then encoded / 2 else - (encoded + 1) / 2) else encoded}
+	elseif fieldType == "i32" and length >= 5 and length <= 9 then
+		local encoded, shift = 0, 0
+		for offset = 4, length - 1 do
+			local byte = bufferReadU8(buf, offset); encoded += bit32lshift(bit32band(byte, 127), shift)
+			if bit32band(byte, 128) == 0 then
+				if offset ~= length - 1 then return nil end
+				local value = bit32bxor(bit32rshift(encoded, 1), -bit32band(encoded, 1)); if value >= 2147483648 then value -= 4294967296 end
+				return {[name] = value}
+			end
+			shift += 7
+		end
+	elseif fieldType == "string" or fieldType == "buffer" then
+		local valueLength, offset = bufferReadU8(buf, 4), 5
+		if valueLength == 255 then if length < 9 then return nil end; valueLength, offset = bufferReadU32(buf, 5), 9 end
+		if length ~= offset + valueLength then return nil end
+		if fieldType == "string" then return {[name] = bufferReadStr(buf, offset, valueLength)} end
+		local value = bufferCreate(valueLength); bufferCopy(value, 0, buf, offset, valueLength); return {[name] = value}
+	elseif fieldType == "vector2" and length == 12 then return {[name] = Vector2.new(bufferReadF32(buf, 4), bufferReadF32(buf, 8))}
+	elseif fieldType == "vector2int" and length == 8 then return {[name] = Vector2.new(bufferReadI16(buf, 4), bufferReadI16(buf, 6))}
+	elseif fieldType == "vector3" and length == 16 then return {[name] = Vector3.new(bufferReadF32(buf, 4), bufferReadF32(buf, 8), bufferReadF32(buf, 12))}
+	elseif fieldType == "vector3int" and length == 10 then return {[name] = Vector3.new(bufferReadI16(buf, 4), bufferReadI16(buf, 6), bufferReadI16(buf, 8))}
+	elseif fieldType == "color3" and length == 7 then return {[name] = Color3.fromRGB(bufferReadU8(buf, 4), bufferReadU8(buf, 5), bufferReadU8(buf, 6))}
+	elseif fieldType == "udim" and length == 10 then return {[name] = UDim.new(bufferReadF32(buf, 4), bufferReadI16(buf, 8))}
+	elseif fieldType == "udim2" and length == 16 then return {[name] = UDim2.new(bufferReadF32(buf, 4), bufferReadI16(buf, 8), bufferReadF32(buf, 10), bufferReadI16(buf, 14))}
+	elseif fieldType == "cframesimple" and length == 28 then
+		local x, y, z, lx, ly, lz = bufferReadF32(buf, 4), bufferReadF32(buf, 8), bufferReadF32(buf, 12), bufferReadF32(buf, 16), bufferReadF32(buf, 20), bufferReadF32(buf, 24)
+		return {[name] = CFrame.lookAt(Vector3.new(x, y, z), Vector3.new(x + lx, y + ly, z + lz))}
+	elseif fieldType == "cframe" and length == 52 then
+		return {[name] = CFrame.new(bufferReadF32(buf, 4), bufferReadF32(buf, 8), bufferReadF32(buf, 12), bufferReadF32(buf, 16), bufferReadF32(buf, 20), bufferReadF32(buf, 24), bufferReadF32(buf, 28), bufferReadF32(buf, 32), bufferReadF32(buf, 36), bufferReadF32(buf, 40), bufferReadF32(buf, 44), bufferReadF32(buf, 48))}
+	end
+	return nil
+end
+
 function Pancakes.SerializeSchema(data: {[string]: any}, schema: Schema): SerializedData
 	local compiled = SchemaCompiler.compileSchema(schema)
 	AutoRuntime.schemaCompactWire = true
+	local singleField = SchemaCompiler.tryWriteSingleFieldBuffer(data, compiled)
+	if singleField ~= nil then return singleField end
 	if compiled.usesStringCache then resetStringCache() end
 	if compiled.usesKeyArena then
 		resetKeyArena()
@@ -7272,11 +8969,13 @@ function Pancakes.SerializeSchema(data: {[string]: any}, schema: Schema): Serial
 			compiled.staticRootPlan,
 			Config.schemaValidationEnabled
 		)
+
 		local size = bufferLen(buf)
 		if size > compiled.observedSize then compiled.observedSize = size end
 		captureSchemaEncodeSnapshot(data, compiled, compiled.staticRootPlan, buf)
 		return buf
 	end
+
 	local writer = Writer.new(mathMax(compiled.estimatedSize, compiled.observedSize))
 	writer._WriteU32(compiled.version)
 	SchemaCompiler.writeSchemaFields(writer, compiled, data)
@@ -7304,6 +9003,8 @@ end
 
 function Pancakes.DeserializeSchema(buf: buffer, schema: Schema): {[string]: any}
 	local compiled = SchemaCompiler.compileSchema(schema)
+	local singleField = SchemaCompiler.tryReadSingleFieldBuffer(buf, compiled)
+	if singleField ~= nil then return singleField end
 	if compiled.usesStringCache then resetStringCache() end
 	if compiled.usesKeyArena then AutoRuntime.reset() end
 	AutoRuntime.beginDecode(buf)
@@ -7335,6 +9036,7 @@ function Pancakes.DeserializeSchema(buf: buffer, schema: Schema): {[string]: any
 		end
 		return result
 	end
+
 	local reader   = Reader.new(buf)
 	local version  = reader._ReadU32()
 	if version ~= compiled.version then
@@ -7371,6 +9073,7 @@ function Pancakes.SerializeSchemaArray(records: {{[string]: any}}, schema: Schem
 		resetKeyArena()
 		AutoRuntime.reset()
 	end
+
 	local n = #records
 	local perRecordEstimate = mathMax(compiled.estimatedSize, compiled.observedSize)
 	local writer = Writer.new(5 + perRecordEstimate * mathMax(n, 1))
@@ -7383,6 +9086,7 @@ function Pancakes.SerializeSchemaArray(records: {{[string]: any}}, schema: Schem
 	for i = 1, n do
 		SchemaCompiler.writeSchemaFields(writer, compiled, records[i])
 	end
+
 	local buf = writer._GetBuffer()
 	if n > 0 then
 		local perRecordActual = mathFloor(bufferLen(buf) / n)
@@ -7407,6 +9111,7 @@ function Pancakes.DeserializeSchemaArray(buf: buffer, schema: Schema): {{[string
 			error(`[Pancakes] Declared record count {n} exceeds the decode safety budget ({AutoRuntime.decodeBitBudget} bits)`, 2)
 		end
 	end
+
 	local results  = tableCreate(n) :: {{[string]: any}}
 	for i = 1, n do
 		results[i] = SchemaCompiler.readSchemaFields(reader, compiled)
@@ -7424,6 +9129,11 @@ type SmartValueKind =
 	"number:int" | "number:float" | "string" | "boolean"
 | "Vector3" | "Vector3int" | "Vector2" | "Vector2int"
 | "CFrame" | "Color3" | "UDim" | "UDim2" | "DateTime"
+| "buffer" | "Vector3int16" | "Vector2int16" | "BrickColor"
+| "NumberRange" | "NumberSequence" | "ColorSequence" | "Instance"
+| "Axes" | "Faces" | "Rect" | "Ray"
+| "NumberSequenceKeypoint" | "ColorSequenceKeypoint" | "Font"
+| "PhysicalProperties" | "Region3" | "Region3int16" | "TweenInfo" | "PathWaypoint"
 | "table" | "other"
 
 type SmartShapeField = {
@@ -7464,9 +9174,7 @@ function SmartRuntime.deltaDeepCopy(v: any): any
 	return copy
 end
 
-function SmartRuntime.snapshotSchemaKeyedData(
-	fields: {SchemaFieldCodec},
-	schemaKeyedData: {[string]: any}): {[string]: any}
+function SmartRuntime.snapshotSchemaKeyedData(fields: {SchemaFieldCodec}, schemaKeyedData: {[string]: any}): {[string]: any}
 	local snapshot = {}
 	for _, f in ipairs(fields) do
 		local v = schemaKeyedData[f.name]
@@ -7492,11 +9200,31 @@ local SMART_KIND_TO_FIELD: {[SmartValueKind]: (name: string) -> SchemaField<any>
 	["Vector3int"]   = Field.Vector3Int,
 	["Vector2"]      = Field.Vector2,
 	["Vector2int"]   = Field.Vector2Int,
-	["CFrame"]       = Field.CFrameSimple,
+	["CFrame"]       = Field.CFrame,
 	["Color3"]       = Field.Color3,
 	["UDim"]         = Field.UDim,
 	["UDim2"]        = Field.UDim2,
 	["DateTime"]     = Field.DateTime,
+	["buffer"]       = Field.Buffer,
+	["Vector3int16"] = Field.Vector3int16,
+	["Vector2int16"] = Field.Vector2int16,
+	["BrickColor"]   = Field.BrickColor,
+	["NumberRange"]  = Field.NumberRange,
+	["NumberSequence"] = Field.NumberSequence,
+	["ColorSequence"] = Field.ColorSequence,
+	["Instance"]     = Field.Instance,
+	["Axes"]         = Field.Axes,
+	["Faces"]        = Field.Faces,
+	["Rect"]         = Field.Rect,
+	["Ray"]          = Field.Ray,
+	["NumberSequenceKeypoint"] = Field.NumberSequenceKeypoint,
+	["ColorSequenceKeypoint"] = Field.ColorSequenceKeypoint,
+	["Font"]         = Field.Font,
+	["PhysicalProperties"] = Field.PhysicalProperties,
+	["Region3"]      = Field.Region3,
+	["Region3int16"] = Field.Region3int16,
+	["TweenInfo"]    = Field.TweenInfo,
+	["PathWaypoint"] = Field.PathWaypoint,
 }
 
 function SmartRuntime.classifyValueKind(value: any): SmartValueKind
@@ -7516,7 +9244,7 @@ function SmartRuntime.classifyValueKind(value: any): SmartValueKind
 		local x, y = value.X, value.Y
 		local isInt = x % 1 == 0 and y % 1 == 0
 		return if isInt then "Vector2int" else "Vector2"
-	elseif t == "CFrame" or t == "Color3" or t == "UDim" or t == "UDim2" or t == "DateTime" then
+	elseif SMART_KIND_TO_FIELD[t] ~= nil then
 		return t :: SmartValueKind
 	elseif t == "table" then
 		return "table"
@@ -7530,6 +9258,12 @@ local SMART_KIND_HASH_TAG: {[SmartValueKind]: number} = {
 	["Vector3"] = 5, ["Vector3int"] = 6, ["Vector2"] = 7, ["Vector2int"] = 8,
 	["CFrame"] = 9, ["Color3"] = 10, ["UDim"] = 11, ["UDim2"] = 12, ["DateTime"] = 13,
 	["table"] = 14, ["other"] = 15,
+	["buffer"] = 16, ["Vector3int16"] = 17, ["Vector2int16"] = 18, ["BrickColor"] = 19,
+	["NumberRange"] = 20, ["NumberSequence"] = 21, ["ColorSequence"] = 22, ["Instance"] = 23,
+	["Axes"] = 24, ["Faces"] = 25, ["Rect"] = 26, ["Ray"] = 27,
+	["NumberSequenceKeypoint"] = 28, ["ColorSequenceKeypoint"] = 29, ["Font"] = 30,
+	["PhysicalProperties"] = 31, ["Region3"] = 32, ["Region3int16"] = 33,
+	["TweenInfo"] = 34, ["PathWaypoint"] = 35,
 }
 
 function SmartRuntime.fnv1aString(str: string): number
@@ -7657,11 +9391,7 @@ function SmartRuntime.restoreOriginalKeys(result: {[string]: any}, shape: SmartS
 	return result
 end
 
-function SmartRuntime.serializeDelta(
-	self: SmartSchemasState,
-	shape: SmartShapeRecord,
-	schemaKeyedData: {[string]: any},
-	id: string | number): buffer
+function SmartRuntime.serializeDelta(self: SmartSchemasState, shape: SmartShapeRecord, schemaKeyedData: {[string]: any}, id: string | number): buffer
 	local compiled = shape.compiled :: CompiledSchema
 	local version   = compiled.version
 
@@ -7670,6 +9400,7 @@ function SmartRuntime.serializeDelta(
 		sentByVersion = {}
 		self.deltaLastSent[version] = sentByVersion
 	end
+
 	local countByVersion = self.deltaSendCount[version]
 	if not countByVersion then
 		countByVersion = {}
@@ -7694,6 +9425,7 @@ function SmartRuntime.serializeDelta(
 		resetKeyArena()
 		AutoRuntime.reset()
 	end
+
 	local writer = Writer.new()
 	writer._WriteU32(version)
 	for i in fields do
@@ -7709,23 +9441,17 @@ function SmartRuntime.serializeDelta(
 	return writer._GetBuffer()
 end
 
-function SmartSchemasImpl.Serialize(
-	self: SmartSchemasState,
-	data: any,
-	disableTracking: boolean?,
-	id: (string | number)?): SerializedData
+function SmartSchemasImpl.Serialize(self: SmartSchemasState, data: any, disableTracking: boolean?, id: (string | number)?): SerializedData
 	if disableTracking or type(data) ~= "table" then
 		return SmartRuntime.tagBuffer(SMART_TAG_AUTO, Pancakes.SerializeAuto(data))
 	end
 
 	local hash, count, kindByName, keyTypes = SmartRuntime.buildShapeInfo(data)
-
 	if count == 0 then
 		return SmartRuntime.tagBuffer(SMART_TAG_AUTO, Pancakes.SerializeAuto(data))
 	end
 
 	local shape = self.buckets[hash]
-
 	if shape == nil or not SmartRuntime.shapeMatches(shape, kindByName, count) then
 		local names = tableCreate(count) :: {string}
 		for name in kindByName do
@@ -7858,6 +9584,7 @@ function SmartSchemasImpl.Deserialize(self: SmartSchemasState, buf: buffer, id: 
 			receivedByVersion = {}
 			self.deltaLastReceived[version] = receivedByVersion
 		end
+
 		local state = receivedByVersion[id]
 		if state == nil then
 			state = {}
@@ -7882,6 +9609,7 @@ function SmartSchemasImpl.GetShapeStatus(self: SmartSchemasState, data: {[string
 	if count == 0 then
 		return false, 0
 	end
+
 	local shape = self.buckets[hash]
 	if shape == nil or not SmartRuntime.shapeMatches(shape, kindByName, count) then
 		return false, 0
